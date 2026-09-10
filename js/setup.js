@@ -49,7 +49,13 @@ export function initSetupScreen(onConnected) {
       const uid = await ensureSignedIn();
       el("deviceIdBox").classList.remove("hidden");
       el("deviceIdText").textContent = uid;
-      onConnected && onConnected();
+      if (onConnected) {
+        try {
+          await onConnected();
+        } catch (e2) {
+          alert("Step 2 error: " + (e2 && e2.message ? e2.message : e2));
+        }
+      }
     } catch (e) {
       err.textContent = "Connect nahi ho saka — values dobara check karein. (" + e.message + ")";
       err.classList.remove("hidden");
