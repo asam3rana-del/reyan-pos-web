@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IBTISAAM Kiryana Store — Web POS</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- ================= HEADER (shown once connected) ================= -->
+  <header id="appHeader" class="app-header hidden">
+    <div class="app-header-top">
+      <div class="brand">
+        <div class="brand-badge">IK</div>
+        <div>
+          <div class="brand-title">IBTISAAM Kiryana Store</div>
+          <div class="brand-sub" id="branchLabel">Branch: —</div>
+        </div>
+      </div>
+      <nav id="mainNav" class="main-nav">
+        <button data-screen="dashboard" class="nav-btn active">Dashboard</button>
+        <button data-screen="sale" class="nav-btn">Sale</button>
+        <button data-screen="purchase" class="nav-btn">Purchase</button>
+        <button data-screen="dayBook" class="nav-btn">Day Book</button>
+        <button data-screen="stock" class="nav-btn">Stock</button>
+        <button data-screen="parties" class="nav-btn">Parties</button>
+        <button data-screen="cash" class="nav-btn">Cash</button>
+        <button data-screen="expenses" class="nav-btn">Expenses</button>
+        <button data-screen="reports" class="nav-btn">Reports</button>
+        <button data-screen="setup" id="navSetupBtn" class="nav-btn nav-btn-muted">⚙ Setup</button>
+      </nav>
+      <div id="userBadge" class="user-badge hidden">
+        <span id="userBadgeText">—</span>
+        <button id="btnLogout" class="btn-logout">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= SCREEN: STAFF LOGIN ================= -->
+  <section id="screen-login" class="screen hidden">
+    <div class="setup-card">
+
+      <!-- First-ever login for this branch: nobody has a web account yet -->
+      <div id="loginCreateAdmin">
+        <h1>Create your Admin account</h1>
+        <p class="muted">Is branch mein abhi koi web login nahi hai — pehla account admin ka banega.</p>
+        <label>Your Name</label>
+        <input id="createAdminDisplayName" type="text" placeholder="e.g. Ahmed" />
+        <label>Username</label>
+        <input id="createAdminUsername" type="text" placeholder="e.g. ahmed" />
+        <label>Password</label>
+        <input id="createAdminPassword" type="password" placeholder="Kam az kam 4 characters" />
+        <label>Confirm Password</label>
+        <input id="createAdminPasswordConfirm" type="password" />
+        <button id="btnCreateAdmin" class="btn-primary">Create Admin Account</button>
+      </div>
+
+      <!-- Everyday login -->
+      <div id="loginNormal" class="hidden">
+        <h1>Staff Login</h1>
+        <p class="muted">Wahi username jo Android app ki User Management (ya pehle web login) mein bana tha.</p>
+        <label>Username</label>
+        <input id="loginUsername" type="text" placeholder="Username" autocomplete="username" />
+        <label>Password</label>
+        <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="btnLogin" class="btn-primary">Login</button>
+      </div>
+
+      <!-- First-time web login for an Android-created user: no web password yet -->
+      <div id="loginClaim" class="hidden">
+        <h1>Set your web password</h1>
+        <p class="muted">
+          <b id="claimDisplayName">—</b> (<span id="claimRole">—</span>) ke liye is browser pe pehli
+          martaba login ho raha hai — Android app ke password se alag, ek web password set kar lein.
+        </p>
+        <label>New Password</label>
+        <input id="claimPassword" type="password" placeholder="Kam az kam 4 characters" />
+        <label>Confirm Password</label>
+        <input id="claimPasswordConfirm" type="password" />
+        <button id="btnClaimSetPassword" class="btn-primary">Set Password &amp; Login</button>
+        <button id="btnClaimBack" class="btn-secondary full-width" style="margin-top:10px;">Back</button>
+      </div>
+
+      <p id="loginError" class="error-text hidden"></p>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: SETUP / CONNECT ================= -->
+  <section id="screen-setup" class="screen">
+    <div class="setup-card">
+      <h1>Connect to your store's cloud</h1>
+      <p class="muted">
+        Ye web app aap ki Android POS app ke <b>same Firebase project</b> se connect hoti hai —
+        jo values Android app mai <b>Settings &gt; Cloud Sync Setup</b> mein dali thi, wahi values yahan bhi dalein.
+      </p>
+
+      <label>Project ID</label>
+      <input id="cfgProjectId" type="text" placeholder="e.g. ibtisaam-kiryana-store" />
+
+      <label>API Key</label>
+      <input id="cfgApiKey" type="text" placeholder="AIzaSy..." />
+
+      <label>App ID</label>
+      <input id="cfgAppId" type="text" placeholder="1:1234567890:web:abcdef" />
+
+      <label>Storage Bucket <span class="muted">(optional)</span></label>
+      <input id="cfgStorageBucket" type="text" placeholder="your-project.appspot.com" />
+
+      <label>Branch Code</label>
+      <input id="cfgBranchId" type="text" placeholder="e.g. main-branch" />
+
+      <div class="divider-line"></div>
+      <p class="muted">
+        Ye details sirf printed receipts ke header mein dikhti hain (is browser mein save hoti hain —
+        Android app ke Settings se sync nahi hoti, wahan alag se save hai).
+      </p>
+      <label>Shop Name</label>
+      <input id="cfgShopName" type="text" placeholder="IBTISAAM Kiryana Store" />
+      <label>Shop Phone <span class="muted">(optional)</span></label>
+      <input id="cfgShopPhone" type="text" placeholder="03xx-xxxxxxx" />
+      <label>Shop Address <span class="muted">(optional)</span></label>
+      <input id="cfgShopAddress" type="text" placeholder="Address" />
+      <button id="btnSaveShopInfo" class="btn-secondary full-width" style="margin-top:8px;">Save Shop Info Only</button>
+
+      <button id="btnSaveConfig" class="btn-primary">Connect</button>
+      <p id="setupError" class="error-text hidden"></p>
+
+      <div id="deviceIdBox" class="device-id-box hidden">
+        <p><b>This browser's Device ID:</b></p>
+        <code id="deviceIdText">—</code>
+        <p class="muted">
+          Ye ID Firebase Console mein <code>branch_members/{id}</code> par
+          <code>{ branchId: "your-branch-code" }</code> ke sath add karwayein
+          (bilkul waisay jaisay Android app ke naye device ko access dete waqt karte hain) —
+          warna "permission denied" error aayega.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: DASHBOARD ================= -->
+  <section id="screen-dashboard" class="screen hidden">
+    <div class="stats-row">
+      <div class="stat-card stat-teal">
+        <div class="stat-label">Today's Sale</div>
+        <div class="stat-value" id="statTodaySale">Rs 0.00</div>
+      </div>
+      <div class="stat-card stat-blue">
+        <div class="stat-label">Today's Profit</div>
+        <div class="stat-value" id="statTodayProfit">Rs 0.00</div>
+      </div>
+    </div>
+
+    <h3 class="section-label">QUICK ACTIONS</h3>
+    <div class="quick-grid">
+      <button class="quick-card quick-purple" data-screen="sale">
+        <div class="quick-icon">🛒</div>
+        <div class="quick-title">Sale</div>
+        <div class="quick-sub">Start a new sale</div>
+      </button>
+      <button class="quick-card quick-purple" id="btnQuickSale">
+        <div class="quick-icon">⏱</div>
+        <div class="quick-title">Quick Sale</div>
+        <div class="quick-sub">Fast single-item sale</div>
+      </button>
+      <button class="quick-card quick-teal" data-screen="dayBook">
+        <div class="quick-icon">📖</div>
+        <div class="quick-title">Day Book</div>
+        <div class="quick-sub">View daily ledger</div>
+      </button>
+      <button class="quick-card quick-red" data-screen="stock">
+        <div class="quick-icon">⚠</div>
+        <div class="quick-title">Low Stock</div>
+        <div class="quick-sub">Items needing restock</div>
+      </button>
+    </div>
+
+    <h3 class="section-label">DUES SUMMARY</h3>
+    <div class="stats-row">
+      <div class="stat-card stat-teal">
+        <div class="stat-label">You'll get</div>
+        <div class="stat-value" id="statYoullGet">Rs 0.00</div>
+      </div>
+      <div class="stat-card stat-red">
+        <div class="stat-label">You'll give</div>
+        <div class="stat-value" id="statYoullGive">Rs 0.00</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: SALE (computer POS two-pane) ================= -->
+  <section id="screen-sale" class="screen hidden">
+    <div class="sale-layout">
+
+      <!-- LEFT: item entry -->
+      <div class="sale-left">
+        <div class="field-row">
+          <div class="field">
+            <label>CUSTOMER</label>
+            <input id="saleCustomer" type="text" value="cash" list="customerList" />
+            <datalist id="customerList"></datalist>
+          </div>
+          <div class="field">
+            <label>SALE TYPE</label>
+            <select id="saleType">
+              <option value="retail">Retail</option>
+              <option value="wholesale">Wholesale</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">+ Add Item</div>
+          <label>ITEM NAME</label>
+          <input id="itemSearch" type="text" placeholder="Type to search..." autocomplete="off" />
+          <div id="itemSuggestions" class="suggestions hidden"></div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>QUANTITY</label>
+              <input id="itemQty" type="number" value="0" min="0" step="any" />
+            </div>
+            <div class="field">
+              <label>UNIT</label>
+              <select id="itemUnit"></select>
+            </div>
+          </div>
+
+          <label>RATE</label>
+          <input id="itemRate" type="number" placeholder="Auto-filled, editable" step="any" />
+
+          <div class="line-total">Line Amount: <span id="lineAmount">Rs 0.00</span></div>
+          <button id="btnAddItem" class="btn-primary full-width">ADD ITEM</button>
+        </div>
+      </div>
+
+      <div class="sale-divider"></div>
+
+      <!-- RIGHT: cart + billing (independently scrolling list, pinned totals) -->
+      <div class="sale-right">
+        <div class="cart-header">Billed Items (<span id="cartCount">0</span>)</div>
+        <div class="cart-list-scroll">
+          <div id="cartList"></div>
+        </div>
+
+        <div class="pinned-bottom">
+          <div class="card row-between">
+            <span>SUBTOTAL</span><span id="sumSubtotal">Rs 0.00</span>
+          </div>
+          <div class="card">
+            <label>DISCOUNT</label>
+            <input id="saleDiscount" type="number" value="0" step="any" />
+          </div>
+          <div class="card row-between total-row">
+            <span>TOTAL AMOUNT</span><span id="sumTotal">Rs 0.00</span>
+          </div>
+          <div class="card">
+            <label>PAID AMOUNT</label>
+            <input id="salePaid" type="number" value="0" step="any" />
+            <label>PAYMENT METHOD</label>
+            <select id="paymentMethod">
+              <option>Cash</option>
+              <option>Credit</option>
+              <option>Bank Transfer</option>
+              <option>JazzCash/EasyPaisa</option>
+            </select>
+          </div>
+          <div class="card row-between due-row">
+            <span>DUE</span><span id="sumDue">Rs 0.00</span>
+          </div>
+          <div class="button-row">
+            <button id="btnSaveSale" class="btn-primary full-width">SAVE SALE</button>
+            <button id="btnClearSale" class="btn-secondary">CLEAR</button>
+          </div>
+          <button id="btnPrintLastSale" class="btn-print full-width hidden">🖨 PRINT LAST RECEIPT</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: PURCHASE (computer POS two-pane, mirrors Sale) ================= -->
+  <section id="screen-purchase" class="screen hidden">
+    <div class="sale-layout">
+
+      <!-- LEFT: item entry -->
+      <div class="sale-left">
+        <div class="field-row">
+          <div class="field">
+            <label>SUPPLIER</label>
+            <input id="purchaseSupplier" type="text" placeholder="Supplier name (optional)" list="supplierList" />
+            <datalist id="supplierList"></datalist>
+          </div>
+          <div class="field">
+            <label>BILL DATE</label>
+            <input id="purchaseDate" type="date" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">+ Add Item</div>
+          <label>ITEM NAME</label>
+          <input id="purchaseItemSearch" type="text" placeholder="Type to search..." autocomplete="off" />
+          <div id="purchaseItemSuggestions" class="suggestions hidden"></div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>QUANTITY</label>
+              <input id="purchaseItemQty" type="number" value="0" min="0" step="any" />
+            </div>
+            <div class="field">
+              <label>UNIT</label>
+              <select id="purchaseItemUnit"></select>
+            </div>
+          </div>
+
+          <label>COST RATE</label>
+          <input id="purchaseItemRate" type="number" placeholder="Auto-filled, editable" step="any" />
+
+          <div class="line-total">Line Amount: <span id="purchaseLineAmount">Rs 0.00</span></div>
+          <button id="btnAddPurchaseItem" class="btn-primary full-width">ADD ITEM</button>
+        </div>
+      </div>
+
+      <div class="sale-divider"></div>
+
+      <!-- RIGHT: cart + billing (independently scrolling list, pinned totals) -->
+      <div class="sale-right">
+        <div class="cart-header">Bill Items (<span id="purchaseCartCount">0</span>)</div>
+        <div class="cart-list-scroll">
+          <div id="purchaseCartList"></div>
+        </div>
+
+        <div class="pinned-bottom">
+          <div class="card row-between">
+            <span>SUBTOTAL</span><span id="purchaseSumSubtotal">Rs 0.00</span>
+          </div>
+          <div class="card">
+            <label>DISCOUNT</label>
+            <input id="purchaseDiscount" type="number" value="0" step="any" />
+          </div>
+          <div class="card row-between total-row">
+            <span>TOTAL AMOUNT</span><span id="purchaseSumTotal">Rs 0.00</span>
+          </div>
+          <div class="card">
+            <label>PAID AMOUNT</label>
+            <input id="purchasePaid" type="number" value="0" step="any" />
+            <label>PAYMENT METHOD</label>
+            <select id="purchasePaymentMethod">
+              <option>Cash</option>
+              <option>Credit</option>
+              <option>Bank Transfer</option>
+              <option>JazzCash/EasyPaisa</option>
+            </select>
+          </div>
+          <div class="card row-between due-row">
+            <span>DUE (to supplier)</span><span id="purchaseSumDue">Rs 0.00</span>
+          </div>
+          <div class="button-row">
+            <button id="btnSavePurchase" class="btn-primary full-width">SAVE PURCHASE</button>
+            <button id="btnClearPurchase" class="btn-secondary">CLEAR</button>
+          </div>
+          <button id="btnPrintLastPurchase" class="btn-print full-width hidden">🖨 PRINT LAST BILL</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: PARTIES (Customers/Suppliers CRUD) ================= -->
+  <section id="screen-parties" class="screen hidden">
+    <h1>Customers &amp; Suppliers</h1>
+
+    <div class="party-tabs">
+      <button id="tabCustomers" class="nav-btn active">Customers</button>
+      <button id="tabSuppliers" class="nav-btn">Suppliers</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title" id="partyFormTitle">+ Add Customer</div>
+      <label>NAME</label>
+      <input id="partyName" type="text" placeholder="Party name" />
+      <label>PHONE <span class="muted">(optional)</span></label>
+      <input id="partyPhone" type="text" placeholder="03xx-xxxxxxx" />
+      <div class="field-row">
+        <div class="field">
+          <label>OPENING BALANCE</label>
+          <input id="partyOpeningBalance" type="number" value="0" step="any" />
+        </div>
+        <div class="field" id="creditLimitField">
+          <label>CREDIT LIMIT</label>
+          <input id="partyCreditLimit" type="number" value="0" step="any" />
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="btnSaveParty" class="btn-primary full-width">SAVE</button>
+        <button id="btnCancelPartyEdit" class="btn-secondary hidden">CANCEL</button>
+      </div>
+    </div>
+
+    <input id="partySearch" type="text" placeholder="Search by name or phone..." />
+    <div id="partyList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: DAY BOOK ================= -->
+  <section id="screen-dayBook" class="screen hidden">
+    <h1>Day Book</h1>
+    <input id="dayBookDate" type="date" />
+    <div id="dayBookList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: STOCK / LOW STOCK ================= -->
+  <section id="screen-stock" class="screen hidden">
+    <h1>Stock Report</h1>
+    <label class="toggle-row"><input type="checkbox" id="lowStockOnly" checked /> Low stock only</label>
+    <div id="stockList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: CASH IN / CASH OUT ================= -->
+  <section id="screen-cash" class="screen hidden">
+    <h1>Cash In / Cash Out</h1>
+
+    <div class="stats-row">
+      <div class="stat-card stat-teal">
+        <div class="stat-label">Today Cash In</div>
+        <div class="stat-value" id="cashTodayIn">Rs 0.00</div>
+      </div>
+      <div class="stat-card stat-red">
+        <div class="stat-label">Today Cash Out</div>
+        <div class="stat-value" id="cashTodayOut">Rs 0.00</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">New Entry</div>
+
+      <label>AMOUNT</label>
+      <input id="cashAmount" type="number" min="0" step="any" placeholder="0.00" />
+
+      <label>METHOD</label>
+      <select id="cashMethod">
+        <option value="cash">Cash</option>
+        <option value="bank">Bank</option>
+      </select>
+
+      <label>EXPENSE CATEGORY <span class="muted">(applies to Cash Out only)</span></label>
+      <select id="cashCategory"></select>
+
+      <div id="cashMiscField" class="hidden">
+        <label>DESCRIBE THIS EXPENSE</label>
+        <input id="cashMiscDesc" type="text" placeholder="Describe..." />
+      </div>
+
+      <label>REASON / NOTE <span class="muted">(optional)</span></label>
+      <input id="cashReason" type="text" placeholder="Optional note" />
+
+      <div class="button-row">
+        <button id="btnCashIn" class="btn-cash-in">CASH IN</button>
+        <button id="btnCashOut" class="btn-cash-out">CASH OUT</button>
+      </div>
+    </div>
+
+    <h3 class="section-label">RECENT TRANSACTIONS</h3>
+    <div id="cashList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: EXPENSES ================= -->
+  <section id="screen-expenses" class="screen hidden">
+    <h1>Expenses</h1>
+
+    <div class="stats-row">
+      <div class="stat-card stat-red">
+        <div class="stat-label">Today's Expense</div>
+        <div class="stat-value" id="expenseTodayTotal">Rs 0.00</div>
+      </div>
+      <div class="stat-card stat-red">
+        <div class="stat-label">This Month</div>
+        <div class="stat-value" id="expenseMonthTotal">Rs 0.00</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">New Expense</div>
+
+      <label>AMOUNT</label>
+      <input id="expenseAmount" type="number" min="0" step="any" placeholder="0.00" />
+
+      <label>EXPENSE CATEGORY</label>
+      <select id="expenseCategory"></select>
+
+      <div id="expenseMiscField" class="hidden">
+        <label>DESCRIBE THIS EXPENSE</label>
+        <input id="expenseMiscDesc" type="text" placeholder="Describe..." />
+      </div>
+
+      <label>NOTE <span class="muted">(optional)</span></label>
+      <input id="expenseReason" type="text" placeholder="Optional note" />
+
+      <button id="btnSaveExpense" class="btn-primary full-width">SAVE EXPENSE</button>
+    </div>
+
+    <div id="expenseList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: REPORTS (Profit & Loss + Balance Sheet) ================= -->
+  <section id="screen-reports" class="screen hidden">
+    <h1>Reports</h1>
+
+    <div class="party-tabs">
+      <button id="tabPnl" class="nav-btn active">Profit &amp; Loss</button>
+      <button id="tabBalanceSheet" class="nav-btn">Balance Sheet</button>
+    </div>
+
+    <!-- ---- Profit & Loss tab ---- -->
+    <div id="pnlTab">
+      <div class="filter-row">
+        <button class="report-filter-pill active" data-range="today">Today</button>
+        <button class="report-filter-pill" data-range="week">This Week</button>
+        <button class="report-filter-pill" data-range="month">This Month</button>
+        <button class="report-filter-pill" data-range="all">All Time</button>
+      </div>
+
+      <div class="stats-row" id="pnlStats"></div>
+
+      <div id="pnlStatement" class="card"></div>
+
+      <div id="pnlTopProducts" class="card"></div>
+      <div id="pnlDailySales" class="card"></div>
+    </div>
+
+    <!-- ---- Balance Sheet tab ---- -->
+    <div id="balanceSheetTab" class="hidden">
+      <div id="balanceSheetBox"></div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
