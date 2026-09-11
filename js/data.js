@@ -78,19 +78,34 @@ export function findUserByUsername(username) {
 // Doc-id scheme `user:${username}` matches Android's SyncQueueHelper.userEntityId()
 // exactly, so a user created on one side and later saved-to again from the other
 // lands on the SAME document (merge-safe), not a duplicate.
-export async function createWebUser({ username, displayName, role, webPasswordHash }) {
+export async function createWebUser({ username, displayName, role, phone, webPasswordHash }) {
   const bId = branchId();
   const id = `user:${username.trim()}`;
   await setDoc(doc(db(), "users", id), {
     serverId: id, username: username.trim(), displayName: (displayName || username).trim(),
-    role: role || "cashier", phone: "", active: true,
-    webPasswordHash, updatedAt: Date.now(), branchId: bId
+    role: role || "cashier", phone: (phone || "").trim(), active: true,
+    // No webPasswordHash yet when an admin creates this user from the Staff
+    // Users screen (see users.js) — the new person sets their own the first
+    // time they log in on the web, via the exact same "claim" flow login.js
+    // already uses for an Android-created user's first web login.
+    webPasswordHash: webPasswordHash || null,
+    updatedAt: Date.now(), branchId: bId
   });
   return id;
 }
 
 export async function setUserWebPassword(userId, webPasswordHash) {
   await updateDoc(doc(db(), "users", userId), { webPasswordHash, updatedAt: Date.now() });
+}
+
+// ---- Staff Users screen (admin-only — see users.js) ----
+
+export async function setUserActive(userId, active) {
+  await updateDoc(doc(db(), "users", userId), { active, updatedAt: Date.now() });
+}
+
+export async function deleteWebUser(userId) {
+  await deleteDoc(doc(db(), "users", userId));
 }
 
 export function findCustomerByName(name) {
@@ -324,6 +339,201 @@ export async function savePurchase({ lines, supplierName, discount, paid, paymen
           serverId: paymentId, reference: billNo, partyType: "supplier",
           partyId: supplier.id, amount: paid, method: paymentMethod,
           note: "Purchase payment", createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+        });
+      } catch (e) {
+        console.warn("Payment record failed", e);
+      }
+    }
+    const cashTxId = ids.cashTransaction();
+    try {
+      await setDoc(doc(db(), "cash_transactions", cashTxId), {
+        serverId: cashTxId, type: "OUT", method: (paymentMethod || "").toLowerCase(),
+        amount: paid, reason: "Purchase", reference: billNo,
+        createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+      });
+    } catch (e) {
+      console.warn("Cash transaction record failed", e);
+    }
+  }
+
+  return billNo;
+}
+
+// ---------- Purchase history / edit / delete (mirrors PurchaseHistoryActivity.kt +
+// PurchaseRepository.kt's deletePurchase()/savePurchase() edit-reversal math — an
+// edit is "reverse the old bill's effects, then save the new one under the same
+// billNo", same as PurchaseRepository.savePurchase()'s `original != null` branch). ----------
+
+export async function loadPurchaseHistory() {
+  const bId = branchId();
+  const q = query(collection(db(), "purchases"), where("branchId", "==", bId));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function getPurchaseByBillNo(billNo) {
+  const snap = await getDoc(doc(db(), "purchases", ids.purchase(billNo)));
+  return snap.exists() ? snap.data() : null;
+}
+
+async function deleteDocsByReference(collectionName, billNo) {
+  const bId = branchId();
+  const q = query(collection(db(), collectionName), where("branchId", "==", bId), where("reference", "==", billNo));
+  const snap = await getDocs(q);
+  for (const d of snap.docs) {
+    try { await deleteDoc(doc(db(), collectionName, d.id)); } catch (e) { console.warn(`${collectionName} delete failed`, e); }
+  }
+}
+
+// Reverses a purchase's stock/cost + supplier-balance effects and removes the
+// payment/cash_transaction records it created — the exact inverse of the
+// "increase stock, roll cost forward, bump supplier balance, log payment+cash"
+// block inside savePurchase() above.
+//
+// `productOverrides` (barcode -> working {stock,cost} copy), when passed, keeps
+// this purely in-memory instead of writing straight to Firestore — used by
+// updatePurchaseBill() so it can chain a reversal into a forward re-apply
+// without waiting for the products listener to refresh the local cache in
+// between (which is never guaranteed to land in time and would double-count).
+async function reversePurchaseEffects(purchase, productOverrides) {
+  for (const it of (purchase.items || [])) {
+    const product = productOverrides ? (productOverrides[it.barcode] || products.find(p => p.barcode === it.barcode)) : products.find(p => p.barcode === it.barcode);
+    if (!product) continue;
+    const smallestQty = it.conversionFactor > 0 ? it.qty * it.conversionFactor : toSmallestUnits(product, it.qty, it.unit);
+    if (smallestQty <= 0) continue;
+
+    const factor = smallestUnitFactor(product);
+    const oldCostPerSmallest = factor > 0 ? (product.cost || 0) / factor : (product.cost || 0);
+    const oldStock = product.stock || 0;
+    const newStock = oldStock - smallestQty;
+    const totalValueBefore = oldStock * oldCostPerSmallest;
+    const totalValueAfter = Math.max(0, totalValueBefore - it.amount);
+    const newCostPerSmallest = newStock > 0 ? totalValueAfter / newStock : 0;
+    const newCost = newCostPerSmallest * factor;
+
+    if (productOverrides) {
+      productOverrides[it.barcode] = { ...product, stock: newStock, cost: newCost };
+    } else {
+      try {
+        await updateDoc(doc(db(), "products", it.barcode), { stock: increment(-smallestQty), cost: newCost, updatedAt: Date.now() });
+      } catch (e) {
+        console.warn("Stock/cost reversal failed for", it.barcode, e);
+      }
+    }
+  }
+
+  const outstanding = (purchase.total || 0) - (purchase.paid || 0);
+  if (purchase.supplierServerId && outstanding > 0) {
+    try {
+      await updateDoc(doc(db(), "suppliers", purchase.supplierServerId), { balance: increment(-outstanding), updatedAt: Date.now() });
+    } catch (e) {
+      console.warn("Supplier balance reversal failed", e);
+    }
+  }
+
+  await deleteDocsByReference("payments", purchase.billNo);
+  await deleteDocsByReference("cash_transactions", purchase.billNo);
+}
+
+// Deletes a purchase bill entirely — reverses its stock/cost/supplier-balance
+// effects first (see reversePurchaseEffects above), then removes the bill.
+export async function deletePurchaseBill(billNo) {
+  const purchase = await getPurchaseByBillNo(billNo);
+  if (!purchase) throw new Error("Purchase not found");
+  await reversePurchaseEffects(purchase);
+  await deleteDoc(doc(db(), "purchases", ids.purchase(billNo)));
+}
+
+// Edits an existing bill in place (same billNo). `original` is the raw
+// Firestore purchase doc being replaced — fetch it once when entering edit
+// mode (see purchase.js's enterPurchaseEditMode()) and pass it back here so
+// the reversal step above has the pre-edit items/total/paid to undo.
+export async function updatePurchaseBill(billNo, { lines, supplierName, discount, paid, paymentMethod, purchaseDateMillis }, original) {
+  if (!lines.length) throw new Error("No items in purchase");
+
+  const bId = branchId();
+  const supplier = findSupplierByName(supplierName);
+
+  // Reverse the old bill into a local working copy of affected products (not
+  // Firestore) so the forward pass below can read post-reversal figures
+  // immediately, with no round-trip through the real-time listener.
+  const productOverrides = {};
+  await reversePurchaseEffects(original, productOverrides);
+
+  const subtotal = lines.reduce((s, l) => s + l.amount, 0);
+  const total = Math.max(0, subtotal - discount);
+
+  const itemMaps = lines.map(l => ({
+    barcode: l.barcode, qty: l.qty, unit: l.unit,
+    unitCost: l.unitCost, amount: l.amount,
+    conversionFactor: l.conversionFactor || 0
+  }));
+
+  const purchaseDoc = {
+    serverId: ids.purchase(billNo),
+    billNo,
+    supplierServerId: supplier ? supplier.id : null,
+    subtotal, discount, total, paid,
+    createdAt: purchaseDateMillis || original.createdAt || Date.now(),
+    status: "active",
+    itemCount: lines.length,
+    items: itemMaps,
+    updatedAt: Date.now(),
+    branchId: bId
+  };
+  await setDoc(doc(db(), "purchases", purchaseDoc.serverId), purchaseDoc);
+
+  // Forward pass — same weighted-average roll-forward math as savePurchase(),
+  // but reading from productOverrides first so this bill's own reversal is
+  // already blended in before its (possibly changed) new lines are added.
+  for (const l of lines) {
+    const product = productOverrides[l.barcode] || products.find(p => p.barcode === l.barcode);
+    if (!product) continue;
+    const purchasedSmallest = toSmallestUnits(product, l.qty, l.unit);
+    if (purchasedSmallest <= 0) continue;
+
+    const factor = smallestUnitFactor(product);
+    const oldStock = product.stock || 0;
+    const oldCostPerSmallest = factor > 0 ? (product.cost || 0) / factor : (product.cost || 0);
+    const purchaseRatePerSmallest = l.amount / purchasedSmallest;
+    const newCostPerSmallest = oldStock <= 0
+      ? purchaseRatePerSmallest
+      : ((oldStock * oldCostPerSmallest) + (purchasedSmallest * purchaseRatePerSmallest)) / (oldStock + purchasedSmallest);
+    const newCost = newCostPerSmallest * factor;
+    const newStock = oldStock + purchasedSmallest;
+
+    productOverrides[l.barcode] = { ...product, stock: newStock, cost: newCost };
+  }
+
+  // Flush every touched product as ONE absolute write (reversal + forward
+  // combined) — avoids the double-write race a naive "reverse via increment(),
+  // then forward via increment()" pair would have.
+  for (const barcode of Object.keys(productOverrides)) {
+    const p = productOverrides[barcode];
+    try {
+      await updateDoc(doc(db(), "products", barcode), { stock: p.stock, cost: p.cost, updatedAt: Date.now() });
+    } catch (e) {
+      console.warn("Stock/cost update failed for", barcode, e);
+    }
+  }
+
+  const outstanding = total - paid;
+  if (supplier && outstanding > 0) {
+    try {
+      await updateDoc(doc(db(), "suppliers", supplier.id), { balance: increment(outstanding), updatedAt: Date.now() });
+    } catch (e) {
+      console.warn("Supplier balance update failed", e);
+    }
+  }
+
+  if (paid > 0) {
+    if (supplier) {
+      const paymentId = ids.payment();
+      try {
+        await setDoc(doc(db(), "payments", paymentId), {
+          serverId: paymentId, reference: billNo, partyType: "supplier",
+          partyId: supplier.id, amount: paid, method: paymentMethod,
+          note: "Purchase payment (edited)", createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
         });
       } catch (e) {
         console.warn("Payment record failed", e);

@@ -1,4 +1,4 @@
-import { products, suppliers, savePurchase } from "./data.js";
+import { products, suppliers, savePurchase, updatePurchaseBill } from "./data.js";
 import { unitNames, toSmallestUnits } from "./firebase-init.js";
 import { showToast } from "./ui.js";
 import { printPurchaseReceipt } from "./print.js";
@@ -6,6 +6,12 @@ import { printPurchaseReceipt } from "./print.js";
 let cart = [];       // [{barcode, product, qty, unit, unitCost, amount, conversionFactor}]
 let selectedProduct = null;
 let lastSavedPurchase = null; // { billNo, supplierName, receipt } — set after a successful save, for the Print button
+
+// Set only while editing an existing bill from Purchase History (see
+// enterPurchaseEditMode()) — editingOriginal is the raw Firestore doc being
+// replaced, needed by updatePurchaseBill() to reverse its old effects.
+let editingBillNo = null;
+let editingOriginal = null;
 
 function money(n) {
   return "Rs " + (n || 0).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -100,9 +106,17 @@ function recalcTotals() {
   return { subtotal, discount, total, paid, due };
 }
 
+function exitEditMode() {
+  editingBillNo = null;
+  editingOriginal = null;
+  el("purchaseEditBanner").classList.add("hidden");
+  el("btnSavePurchase").textContent = "SAVE PURCHASE";
+}
+
 function resetForm() {
   cart = [];
   selectedProduct = null;
+  exitEditMode();
   el("purchaseItemSearch").value = "";
   el("purchaseItemQty").value = 0;
   el("purchaseItemRate").value = "";
@@ -115,6 +129,51 @@ function resetForm() {
   renderCart();
   recalcTotals();
   recalcLineAmount();
+}
+
+// Loads a past bill (from Purchase History's ✎ Edit) into this screen for
+// editing. `purchase` is the raw Firestore purchase doc; `supplierName` is
+// already resolved from purchase.supplierServerId since this screen otherwise
+// only deals in names, not ids. Saving afterwards calls updatePurchaseBill()
+// instead of savePurchase() — see the btnSavePurchase handler below.
+//
+// Note: paymentMethod isn't stored on the purchase doc itself (only qty/cost/
+// totals are — see savePurchase()'s purchaseDoc shape), so it can't be
+// restored here and defaults back to "Cash", same limitation the Android app
+// has for the same reason.
+export function enterPurchaseEditMode(purchase, supplierName) {
+  editingBillNo = purchase.billNo;
+  editingOriginal = purchase;
+  selectedProduct = null;
+
+  cart = (purchase.items || []).map(it => {
+    const product = products.find(p => p.barcode === it.barcode);
+    return {
+      barcode: it.barcode,
+      product: product ? product.name : it.barcode,
+      qty: it.qty, unit: it.unit, unitCost: it.unitCost,
+      amount: it.amount, conversionFactor: it.conversionFactor || 0
+    };
+  });
+
+  el("purchaseItemSearch").value = "";
+  el("purchaseItemQty").value = 0;
+  el("purchaseItemRate").value = "";
+  el("purchaseItemUnit").innerHTML = "";
+  el("purchaseSupplier").value = supplierName || "";
+  const d = new Date(purchase.createdAt);
+  el("purchaseDate").value = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  el("purchaseDiscount").value = purchase.discount || 0;
+  el("purchasePaid").value = purchase.paid || 0;
+  el("purchasePaymentMethod").value = "Cash";
+
+  renderCart();
+  recalcTotals();
+  recalcLineAmount();
+
+  el("purchaseEditBillNo").textContent = purchase.billNo;
+  el("purchaseEditBanner").classList.remove("hidden");
+  el("btnSavePurchase").textContent = "UPDATE PURCHASE";
 }
 
 export function initPurchaseScreen() {
@@ -172,18 +231,20 @@ export function initPurchaseScreen() {
     const dateVal = el("purchaseDate").value;
     const purchaseDateMillis = dateVal ? new Date(dateVal + "T00:00:00").getTime() : Date.now();
     const supplierName = el("purchaseSupplier").value;
+    const isEdit = !!editingBillNo;
 
     el("btnSavePurchase").disabled = true;
     try {
-      const billNo = await savePurchase({
-        lines: cart,
-        supplierName,
-        discount: totals.discount,
-        paid: totals.paid,
-        paymentMethod: el("purchasePaymentMethod").value,
-        purchaseDateMillis
-      });
-      // Receipt-shaped snapshot for the Print button — savePurchase() only returns
+      const billNo = isEdit
+        ? await updatePurchaseBill(editingBillNo, {
+            lines: cart, supplierName, discount: totals.discount, paid: totals.paid,
+            paymentMethod: el("purchasePaymentMethod").value, purchaseDateMillis
+          }, editingOriginal)
+        : await savePurchase({
+            lines: cart, supplierName, discount: totals.discount, paid: totals.paid,
+            paymentMethod: el("purchasePaymentMethod").value, purchaseDateMillis
+          });
+      // Receipt-shaped snapshot for the Print button — save/update only return
       // the bill number (see data.js), so build it from what's already in the browser.
       lastSavedPurchase = {
         billNo,
@@ -195,13 +256,17 @@ export function initPurchaseScreen() {
         }
       };
       el("btnPrintLastPurchase").classList.remove("hidden");
-      showToast(`Purchase saved — Bill ${billNo}`);
+      showToast(isEdit ? `Purchase update ho gayi — Bill ${billNo}` : `Purchase saved — Bill ${billNo}`);
       resetForm();
     } catch (e) {
       showToast("Save nahi ho saka: " + e.message);
     } finally {
       el("btnSavePurchase").disabled = false;
     }
+  });
+
+  el("btnCancelPurchaseEdit").addEventListener("click", () => {
+    if (confirm("Edit cancel kar dein? Changes save nahi honge.")) resetForm();
   });
 
   el("btnPrintLastPurchase").addEventListener("click", () => {
