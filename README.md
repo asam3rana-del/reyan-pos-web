@@ -156,6 +156,31 @@ Naya kuch chahiye ho to agla message mein bata dein.
 
 ---
 
+## App icon / "Install as App" (desktop shortcut)
+
+Ab is web app ka apna icon hai (`manifest.json` + `icons/` folder — navy
+badge par "IK", bilkul header ke `brand-badge` jaisa) — is se Chrome ka
+**Install** option kaam karta hai:
+
+- **Desktop Chrome**: address bar ke daayein taraf ek ⊕/install icon
+  dikhega, ya ⋮ menu → **"Install [site name]..."**. Is se ek alag app
+  window + taskbar/desktop shortcut ban jata hai, apne IK icon ke sath.
+- **Android Chrome**: ⋮ menu → **"Add to Home screen"**.
+
+### Agar normal tab mein purana version hi dikh raha ho (isliye incognito use karna par raha hai)
+Ye browser cache ki wajah se hota hai — incognito isliye kaam karta hai kyunki
+wahan koi purana cache hota hi nahi. Normal tab mein bhi yehi fix ho sakta
+hai, incognito ki zaroorat nahi:
+1. Us tab mein **Ctrl+Shift+R** (hard refresh) try karein, YA
+2. Chrome ⋮ menu → Settings → Privacy and security → "Clear browsing data" →
+   sirf "Cached images and files" select karke clear karein, YA
+3. Address bar mein site ka naam type karne ke bajaye, seedha bookmark/typed
+   URL se khulen (kabhi kabhi autocomplete purana cached redirect pakar leta hai).
+Agar app ko **install** kar lein (upar wala), to wo apni alag window mein
+khulti hai jahan ye caching masla aam taur par nahi hota.
+
+---
+
 ## Hosting — kahan chalayein
 
 Teen tareeqay, jo bhi aasan lage:
