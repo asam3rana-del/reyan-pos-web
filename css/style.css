@@ -229,6 +229,27 @@ label {
   margin-top: 4px; display: inline-block;
 }
 
+/* ---------- Purchase edit banner + Purchase History actions ---------- */
+.edit-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--amber-bg); border: 1px solid var(--amber);
+  color: var(--amber-fg); font-weight: 700; font-size: 13px;
+  padding: 10px 14px; border-radius: 12px; margin-bottom: 14px;
+}
+.edit-banner .btn-secondary { padding: 8px 14px; font-size: 12.5px; }
+.history-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 4px; }
+
+/* ---------- Staff Users (role/status badges) ---------- */
+.role-badge {
+  display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.02em;
+  padding: 3px 10px; border-radius: 20px; margin-left: 6px;
+}
+.role-admin { background: var(--purple-bg); color: var(--purple-fg); }
+.role-manager { background: var(--blue-bg); color: var(--blue-fg); }
+.role-cashier { background: var(--amber-bg); color: var(--amber-fg); }
+.role-active { background: var(--teal-bg); color: var(--teal-fg); }
+.role-inactive { background: var(--border); color: var(--text-muted); }
+
 /* ---------- Parties (Customers/Suppliers) ---------- */
 .party-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .party-row-actions { margin-top: 6px; }
