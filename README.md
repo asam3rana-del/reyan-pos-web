@@ -20,7 +20,21 @@ kar sakte hain, aur Android tablet ke sath data automatically milta rahega
   jaisa), matched supplier ki balance/payment/cash-out record hoti hai.
   Supplier sirf naam se match hota hai (naya supplier abhi Purchase screen se
   nahi bantay — pehle "Parties" screen se bana lein, phir yahan naam se select
-  ho jayega). Purchase edit/history abhi nahi hai (sirf naya purchase record karna).
+  ho jayega).
+- ✅ **Purchase History** — nayi screen: har purchase bill ki list (bill no,
+  supplier, date, total, due), bill no/supplier se search. Har row par:
+  - **✎ Edit** — bill Purchase screen mein reload ho jata hai editing ke liye
+    (ek amber banner + "Cancel Edit" button dikhta hai); Update dabane par
+    purani bill ka stock/cost/supplier-balance/payment/cash-out record pehle
+    reverse hota hai, phir nayi values ke sath dobara apply hota hai — bilkul
+    Android app ke `PurchaseRepository.savePurchase()` ke edit-branch jaisa.
+  - **🖨 Print** — us bill ki dobara receipt.
+  - **✕ Delete** — confirm ke baad bill delete, aur uska stock/cost/supplier
+    balance/payment/cash-out reverse (Android ke `PurchaseRepository.
+    deletePurchase()` jaisa).
+  (Payment method purchase doc par save nahi hota — sirf Payment/Cash-out
+  record mein jata hai — is liye edit karte waqt wo "Cash" par reset ho jata
+  hai; Android app mein bhi yehi limitation hai.)
 - ✅ Customers/Suppliers ka pura CRUD — nayi "Parties" screen (Customers ↔
   Suppliers tab toggle): add/edit/delete, phone, opening balance, customer
   credit limit, search, aur current balance ("You'll get"/"You'll give")
@@ -62,10 +76,8 @@ kar sakte hain, aur Android tablet ke sath data automatically milta rahega
   padta hai (Android ka password kabhi Firestore mein nahi jata — is liye
   cross-check nahi ho sakta, dono passwords alag hain, jaisa neeche
   "Technical note" mein likha hai). Login ke baad header mein naam/role
-  dikhta hai + Logout button. **⚙ Setup** screen (Firebase project/branch +
-  shop info) ab sirf **admin** role ke liye dikhti hai — baqi screens har
-  logged-in role ke liye khuli hain (poora per-screen role-permission system
-  abhi is phase ka hissa nahi, sirf Setup ka gate hai).
+  dikhta hai + Logout button. Role-based permissions ab poori tarah lagu hain
+  — neeche "Role-based permissions" wala point dekhein.
 - ✅ **Bill Print** — Sale save karne ke baad "🖨 Print Last Receipt" button
   aur Purchase save karne ke baad "🖨 Print Last Bill" button aata hai; Day
   Book ki har row par bhi ek "🖨 Print" link hai (kisi bhi din ki koi bhi
@@ -75,16 +87,41 @@ kar sakte hain, aur Android tablet ke sath data automatically milta rahega
   apna Print dialog use karke printer par print ya "Save as PDF" kiya ja
   sakta hai. Koi server/PDF library nahi lagi, sirf browser ka built-in
   print feature use hua hai.
+- ✅ **Role-based permissions** — mirrors the Android app's Phase 4 role rules
+  (roles: admin / manager / cashier):
+  - **Purchase** + **Purchase History**: admin only.
+  - **Reports** (Profit & Loss + Balance Sheet tabs): admin or manager.
+  - **Setup**: admin only (jaisa pehle se tha).
+  - Dashboard ka **Today's Profit** card sirf admin ko dikhta hai — manager/
+    cashier ko sirf Today's Sale.
+  - Sale, Day Book, Stock, Parties, Cash, Expenses — har logged-in role ke
+    liye khule hain (Android mein bhi yehi).
+  Har restricted screen do jagah gated hai: nav button us role ke liye chhup
+  jata hai, AUR `showScreen()` khud bhi role check karta hai (toast dikha ke
+  mana kar deta hai) — sirf button chhupana kaafi nahi, warna koi bhi seedha
+  us screen pe click/URL se pohanch sakta — bilkul Android ke har Activity
+  ke apne `onCreate()` role-check jaisa (MainActivity sirf tile chhupata hai,
+  har Activity khud bhi check karta hai).
+
+- ✅ **Staff Users (Setup screen ke andar)** — Android app ke
+  `UserManagementActivity.kt` jaisa hi (admin-only): naya staff add karein
+  (Display Name, Username, Phone optional, Role dropdown), sab users ki list
+  role/active badges ke sath, aur har user par **Reset Password**,
+  **Activate/Deactivate**, **Delete** (apna khud ka account deactivate/delete
+  nahi kar sakte — Android jaisa hi self-lockout guard). Farq sirf itna hai:
+  Android turant password le leta hai (wahi uska local login check hota hai),
+  lekin web pe banaya hua naya user apna **web password khud** pehli login
+  par set karta hai (login screen ka "claim" step) — kyunki Android ka
+  password kabhi Firestore mein sync nahi hota (dono taraf alag-alag
+  passwords hain, jaisa "Staff Login" note mein upar likha hai).
 
 ## Abhi is mein kya NAHI hai (agle phase mein aayega)
 
-- ❌ Poora role-based permission system (abhi sirf Setup screen admin-only hai)
-- ❌ Web se naye staff users banane ka apna UI (Android app ke User
-  Management se hi banane padte hain; web sirf login/web-password set karta hai)
-- ❌ Purchase edit/history (README ke Purchase section mein pehle se likha hua)
+Filhaal koi bhi item is list mein nahi — jo bhi README mein pehle track ho
+raha tha (Purchase edit/history, role-based permissions, staff users) sab
+ban chuka hai.
 
-Jab chahein, agla message mein bol dein "Purchase bhi web pe bana do" ya jo
-bhi chahiye — isi tarah, ek ek karke add hota jayega.
+Naya kuch chahiye ho to agla message mein bata dein.
 
 ---
 

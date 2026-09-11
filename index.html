@@ -22,6 +22,7 @@
         <button data-screen="dashboard" class="nav-btn active">Dashboard</button>
         <button data-screen="sale" class="nav-btn">Sale</button>
         <button data-screen="purchase" class="nav-btn">Purchase</button>
+        <button data-screen="purchaseHistory" class="nav-btn">Purchase History</button>
         <button data-screen="dayBook" class="nav-btn">Day Book</button>
         <button data-screen="stock" class="nav-btn">Stock</button>
         <button data-screen="parties" class="nav-btn">Parties</button>
@@ -137,6 +138,41 @@
         </p>
       </div>
     </div>
+
+    <!-- Staff Users (admin-only) — shown/unhidden post-login by app.js's
+         enterApp(); stays hidden pre-login since the `users` cache/session
+         it depends on don't exist yet. -->
+    <div class="setup-card hidden" id="setupStaffUsersCard">
+      <h1>Staff Users</h1>
+      <p class="muted">
+        Naye staff login yahan se add karein — Android app ke User Management
+        jaisa hi (username, naam, phone, role), bas password admin yahan set
+        nahi karta: naya user pehli martaba web par login karte waqt khud
+        apna password set karega (login screen ka "claim" step) — bilkul
+        waisay hi jaisay Android se banaya hua user pehli web-login par karta
+        hai (upar "Staff Login" note dekhein), kyunki Android ka password
+        kabhi Firestore mein nahi jata.
+      </p>
+
+      <label>Display Name</label>
+      <input id="staffDisplayName" type="text" placeholder="e.g. Ahmed" />
+      <label>Username</label>
+      <input id="staffUsername" type="text" placeholder="e.g. ahmed" />
+      <label>Phone <span class="muted">(optional)</span></label>
+      <input id="staffPhone" type="text" placeholder="03xx-xxxxxxx" />
+      <label>Role</label>
+      <select id="staffRole">
+        <option value="cashier" selected>Cashier</option>
+        <option value="manager">Manager</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button id="btnAddStaffUser" class="btn-primary full-width" style="margin-top:10px;">ADD USER</button>
+      <p id="staffUserError" class="error-text hidden"></p>
+
+      <div class="divider-line"></div>
+      <h3 class="section-label">ALL USERS</h3>
+      <div id="staffUsersList" class="list-box"></div>
+    </div>
   </section>
 
   <!-- ================= SCREEN: DASHBOARD ================= -->
@@ -146,7 +182,7 @@
         <div class="stat-label">Today's Sale</div>
         <div class="stat-value" id="statTodaySale">Rs 0.00</div>
       </div>
-      <div class="stat-card stat-blue">
+      <div class="stat-card stat-blue" id="statTodayProfitCard">
         <div class="stat-label">Today's Profit</div>
         <div class="stat-value" id="statTodayProfit">Rs 0.00</div>
       </div>
@@ -281,6 +317,10 @@
 
   <!-- ================= SCREEN: PURCHASE (computer POS two-pane, mirrors Sale) ================= -->
   <section id="screen-purchase" class="screen hidden">
+    <div id="purchaseEditBanner" class="edit-banner hidden">
+      <span>✎ Editing Bill <b id="purchaseEditBillNo"></b></span>
+      <button id="btnCancelPurchaseEdit" class="btn-secondary">Cancel Edit</button>
+    </div>
     <div class="sale-layout">
 
       <!-- LEFT: item entry -->
@@ -364,6 +404,13 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ================= SCREEN: PURCHASE HISTORY (view/edit/delete past bills) ================= -->
+  <section id="screen-purchaseHistory" class="screen hidden">
+    <h1>Purchase History</h1>
+    <input id="purchaseHistorySearch" type="text" placeholder="Search by bill no or supplier..." />
+    <div id="purchaseHistoryList" class="list-box"></div>
   </section>
 
   <!-- ================= SCREEN: PARTIES (Customers/Suppliers CRUD) ================= -->
