@@ -30,6 +30,7 @@
         <button data-screen="sale" class="nav-btn">Sale</button>
         <button data-screen="purchase" class="nav-btn">Purchase</button>
         <button data-screen="purchaseHistory" class="nav-btn">Purchase History</button>
+        <button data-screen="products" class="nav-btn">Items</button>
         <button data-screen="dayBook" class="nav-btn">Day Book</button>
         <button data-screen="stock" class="nav-btn">Stock</button>
         <button data-screen="parties" class="nav-btn">Parties</button>
@@ -418,6 +419,116 @@
     <h1>Purchase History</h1>
     <input id="purchaseHistorySearch" type="text" placeholder="Search by bill no or supplier..." />
     <div id="purchaseHistoryList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: PRODUCTS / CATEGORIES / UNITS (Items hub) ================= -->
+  <section id="screen-products" class="screen hidden">
+    <h1>Items</h1>
+
+    <div class="party-tabs">
+      <button id="itemsTabProducts" class="nav-btn active">Products</button>
+      <button id="itemsTabCategories" class="nav-btn">Categories</button>
+      <button id="itemsTabUnits" class="nav-btn">Units</button>
+    </div>
+
+    <!-- ---- Products pane ---- -->
+    <div id="itemsPaneProducts">
+      <div class="card">
+        <div class="card-title" id="productFormTitle">+ Add Product</div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>BARCODE <span class="muted">(khali chhoden to khud ban jayega)</span></label>
+            <input id="prodBarcode" type="text" placeholder="Auto" />
+          </div>
+        </div>
+        <label>NAME</label>
+        <input id="prodName" type="text" placeholder="Item ka naam" />
+        <label>SEARCH TAG <span class="muted">(English alias — optional, e.g. "sugar" for چینی)</span></label>
+        <input id="prodSearchTag" type="text" placeholder="English mein search ke liye" />
+        <label>CATEGORY</label>
+        <input id="prodCategory" type="text" list="prodCategoryList" placeholder="General" />
+        <datalist id="prodCategoryList"></datalist>
+
+        <div class="field-row">
+          <div class="field">
+            <label>MAIN UNIT</label>
+            <select id="prodUnit"></select>
+          </div>
+          <div class="field">
+            <label>SMALLEST UNIT <span class="muted">(optional)</span></label>
+            <select id="prodSecondaryUnit"></select>
+          </div>
+        </div>
+        <div class="field hidden" id="secondaryQtyField">
+          <label id="secondaryQtyHint">Conversion qty</label>
+          <input id="prodSecondaryQty" type="number" step="any" placeholder="e.g. 12" />
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>COST</label>
+            <input id="prodCost" type="number" value="0" step="any" />
+          </div>
+          <div class="field">
+            <label>SALE PRICE (RETAIL)</label>
+            <input id="prodSalePrice" type="number" value="0" step="any" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>WHOLESALE PRICE</label>
+            <input id="prodWholesalePrice" type="number" value="0" step="any" />
+          </div>
+          <div class="field">
+            <label>REORDER LEVEL</label>
+            <input id="prodReorderLevel" type="number" value="0" step="any" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field" id="openingStockField">
+            <label>OPENING STOCK</label>
+            <input id="prodOpeningStock" type="number" value="0" step="any" />
+          </div>
+          <div class="field">
+            <label>EXPIRY <span class="muted">(optional)</span></label>
+            <input id="prodExpiry" type="date" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="btnSaveProduct" class="btn-primary full-width">SAVE</button>
+          <button id="btnCancelProductEdit" class="btn-secondary hidden">CANCEL</button>
+        </div>
+      </div>
+
+      <input id="productSearch" type="text" placeholder="Search by name, tag or barcode..." />
+      <div id="productList" class="list-box"></div>
+    </div>
+
+    <!-- ---- Categories pane ---- -->
+    <div id="itemsPaneCategories" class="hidden">
+      <div class="card">
+        <div class="card-title">+ Add Category</div>
+        <div class="button-row">
+          <input id="newCategoryName" type="text" placeholder="Category name" />
+          <button id="btnAddCategory" class="btn-primary">ADD</button>
+        </div>
+      </div>
+      <div id="categoryList" class="list-box"></div>
+    </div>
+
+    <!-- ---- Units pane ---- -->
+    <div id="itemsPaneUnits" class="hidden">
+      <div class="card">
+        <div class="card-title">+ Add Unit</div>
+        <div class="button-row">
+          <input id="newUnitName" type="text" placeholder="Unit name (e.g. Kg, Piece, Carton)" />
+          <button id="btnAddUnit" class="btn-primary">ADD</button>
+        </div>
+      </div>
+      <div id="unitList" class="list-box"></div>
+    </div>
   </section>
 
   <!-- ================= SCREEN: PARTIES (Customers/Suppliers CRUD) ================= -->
