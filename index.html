@@ -543,35 +543,69 @@
   <section id="screen-parties" class="screen hidden">
     <h1>Customers &amp; Suppliers</h1>
 
-    <div class="party-tabs">
-      <button id="tabCustomers" class="nav-btn active">Customers</button>
-      <button id="tabSuppliers" class="nav-btn">Suppliers</button>
-    </div>
+    <!-- ---- List view: CRUD form + search + party list ---- -->
+    <div id="partyListView">
+      <div class="party-tabs">
+        <button id="tabCustomers" class="nav-btn active">Customers</button>
+        <button id="tabSuppliers" class="nav-btn">Suppliers</button>
+      </div>
 
-    <div class="card">
-      <div class="card-title" id="partyFormTitle">+ Add Customer</div>
-      <label>NAME</label>
-      <input id="partyName" type="text" placeholder="Party name" />
-      <label>PHONE <span class="muted">(optional)</span></label>
-      <input id="partyPhone" type="text" placeholder="03xx-xxxxxxx" />
-      <div class="field-row">
-        <div class="field">
-          <label>OPENING BALANCE</label>
-          <input id="partyOpeningBalance" type="number" value="0" step="any" />
+      <div class="card">
+        <div class="card-title" id="partyFormTitle">+ Add Customer</div>
+        <label>NAME</label>
+        <input id="partyName" type="text" placeholder="Party name" />
+        <label>PHONE <span class="muted">(optional)</span></label>
+        <input id="partyPhone" type="text" placeholder="03xx-xxxxxxx" />
+        <div class="field-row">
+          <div class="field">
+            <label>OPENING BALANCE</label>
+            <input id="partyOpeningBalance" type="number" value="0" step="any" />
+          </div>
+          <div class="field" id="creditLimitField">
+            <label>CREDIT LIMIT</label>
+            <input id="partyCreditLimit" type="number" value="0" step="any" />
+          </div>
         </div>
-        <div class="field" id="creditLimitField">
-          <label>CREDIT LIMIT</label>
-          <input id="partyCreditLimit" type="number" value="0" step="any" />
+        <div class="button-row">
+          <button id="btnSaveParty" class="btn-primary full-width">SAVE</button>
+          <button id="btnCancelPartyEdit" class="btn-secondary hidden">CANCEL</button>
         </div>
       </div>
-      <div class="button-row">
-        <button id="btnSaveParty" class="btn-primary full-width">SAVE</button>
-        <button id="btnCancelPartyEdit" class="btn-secondary hidden">CANCEL</button>
-      </div>
+
+      <input id="partySearch" type="text" placeholder="Search by name or phone..." />
+      <div id="partyList" class="list-box"></div>
     </div>
 
-    <input id="partySearch" type="text" placeholder="Search by name or phone..." />
-    <div id="partyList" class="list-box"></div>
+    <!-- ---- Detail view: one party's transactions + Receive/Make Payment
+         (mirrors the Android app's PartyTransactionActivity) ---- -->
+    <div id="partyDetailView" class="hidden">
+      <div class="row-between" style="margin-bottom:14px;">
+        <span id="btnPartyDetailBack" class="btn-secondary" style="cursor:pointer;">‹ Back</span>
+        <span id="btnPartyRecordPayment" class="btn-primary" style="cursor:pointer;">💰 Record Payment</span>
+      </div>
+
+      <div class="card" id="partyDetailHeader"></div>
+
+      <div class="card hidden" id="partyPaymentCard">
+        <div class="card-title" id="partyPaymentTitle">Receive Payment</div>
+        <label>AMOUNT</label>
+        <input id="paymentAmount" type="number" min="0" step="any" placeholder="0.00" />
+        <label>METHOD</label>
+        <select id="paymentMethod">
+          <option value="cash">Cash</option>
+          <option value="bank">Bank</option>
+        </select>
+        <label>NOTE <span class="muted">(optional)</span></label>
+        <input id="paymentNote" type="text" placeholder="Optional note" />
+        <div class="button-row">
+          <button id="btnSavePayment" class="btn-primary full-width">SAVE PAYMENT</button>
+          <button id="btnCancelPayment" class="btn-secondary">CANCEL</button>
+        </div>
+      </div>
+
+      <h3 class="section-label">TRANSACTIONS</h3>
+      <div id="partyTransactionsList" class="list-box"></div>
+    </div>
   </section>
 
   <!-- ================= SCREEN: DAY BOOK ================= -->
@@ -581,11 +615,76 @@
     <div id="dayBookList" class="list-box"></div>
   </section>
 
-  <!-- ================= SCREEN: STOCK / LOW STOCK ================= -->
+  <!-- ================= SCREEN: STOCK (Report / Adjust / Take) ================= -->
   <section id="screen-stock" class="screen hidden">
-    <h1>Stock Report</h1>
-    <label class="toggle-row"><input type="checkbox" id="lowStockOnly" checked /> Low stock only</label>
-    <div id="stockList" class="list-box"></div>
+    <h1>Stock</h1>
+
+    <div class="party-tabs">
+      <button id="tabStockReport" class="nav-btn active">Report</button>
+      <button id="tabStockAdjust" class="nav-btn">Adjust</button>
+      <button id="tabStockTake" class="nav-btn">Take</button>
+    </div>
+
+    <!-- ---- Report tab ---- -->
+    <div id="stockReportTab">
+      <label class="toggle-row"><input type="checkbox" id="lowStockOnly" checked /> Low stock only</label>
+      <div id="stockList" class="list-box"></div>
+    </div>
+
+    <!-- ---- Adjust tab: single ad-hoc correction ---- -->
+    <div id="stockAdjustTab" class="hidden">
+      <div class="card">
+        <div class="card-title">New Adjustment</div>
+
+        <label>ITEM</label>
+        <input id="adjustSearch" type="text" placeholder="Type to search..." autocomplete="off" />
+        <div id="adjustSuggestions" class="suggestions hidden"></div>
+        <div id="adjustCurrentStock" class="muted" style="margin:4px 0 10px;"></div>
+
+        <div class="button-row">
+          <button id="btnAdjustAdd" class="report-filter-pill active">➕ Add Stock</button>
+          <button id="btnAdjustRemove" class="report-filter-pill">➖ Remove Stock</button>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>QUANTITY</label>
+            <input id="adjustQty" type="number" min="0" step="any" placeholder="0" />
+          </div>
+          <div class="field">
+            <label>UNIT</label>
+            <select id="adjustUnit"></select>
+          </div>
+        </div>
+
+        <label>REASON</label>
+        <select id="adjustReason">
+          <option value="Damage">Damage</option>
+          <option value="Expired">Expired</option>
+          <option value="Theft/Loss">Theft/Loss</option>
+          <option value="Correction">Correction</option>
+          <option value="Other">Other</option>
+        </select>
+
+        <label>NOTE <span class="muted">(optional)</span></label>
+        <input id="adjustNote" type="text" placeholder="Optional note" />
+
+        <button id="btnSaveAdjustment" class="btn-primary full-width">SAVE ADJUSTMENT</button>
+      </div>
+
+      <h3 class="section-label">RECENT ADJUSTMENTS</h3>
+      <div id="stockAdjustList" class="list-box"></div>
+    </div>
+
+    <!-- ---- Take tab: bulk physical-count reconciliation ---- -->
+    <div id="stockTakeTab" class="hidden">
+      <input id="stockTakeSearch" type="text" placeholder="Search items..." autocomplete="off" style="margin-bottom:10px;" />
+      <div class="row-between" style="margin-bottom:8px;">
+        <span id="stockTakeSummary" class="muted">Koi farq nahi</span>
+        <button id="btnSaveStockTake" class="btn-primary" disabled>SAVE STOCK TAKE</button>
+      </div>
+      <div id="stockTakeList" class="list-box"></div>
+    </div>
   </section>
 
   <!-- ================= SCREEN: CASH IN / CASH OUT ================= -->
