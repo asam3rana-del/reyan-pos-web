@@ -225,6 +225,67 @@ export async function deleteSupplier(id) {
   await deleteDoc(doc(db(), "suppliers", id));
 }
 
+// ---------- Party transaction history + Payments (mirrors PartyTransactionActivity.kt —
+// the Android screen you get to by tapping a party: their sales/purchases plus a
+// Receive Payment (customer) / Make Payment (supplier) button. `partyId` on a payment
+// here is the customer/supplier's own Firestore doc id (the web has no separate local
+// numeric id the way Room does — Android's own `partyId` is per-device local anyway, so
+// this loses nothing meaningful). Every payment also logs a cash_transactions row (IN
+// for a customer payment, OUT for a supplier payment) — same "money physically changed
+// hands" bookkeeping PartyTransactionActivity.savePayment() does on Android, so Balance
+// Sheet's Cash in Hand stays correct. ----------
+
+export async function loadPartyTransactions(partyId, partyType) {
+  const bId = branchId();
+  if (partyType === "customer") {
+    const snap = await getDocs(query(
+      collection(db(), "sales"), where("branchId", "==", bId), where("customerServerId", "==", partyId)
+    ));
+    return snap.docs.map(d => ({ ...d.data(), kind: "sale" }));
+  }
+  const snap = await getDocs(query(
+    collection(db(), "purchases"), where("branchId", "==", bId), where("supplierServerId", "==", partyId)
+  ));
+  return snap.docs.map(d => ({ ...d.data(), kind: "purchase" }));
+}
+
+export async function loadPartyPayments(partyId, partyType) {
+  const bId = branchId();
+  const snap = await getDocs(query(
+    collection(db(), "payments"), where("branchId", "==", bId),
+    where("partyId", "==", partyId), where("partyType", "==", partyType)
+  ));
+  return snap.docs.map(d => ({ ...d.data(), kind: "payment" }));
+}
+
+export async function savePartyPayment({ partyId, partyType, partyName, amount, method, note }) {
+  const bId = branchId();
+  const id = ids.payment();
+  const reference = `manual-${partyType}-${partyId}-${Date.now()}`;
+  const reasonText = (partyType === "customer" ? `Payment received from ${partyName}` : `Payment made to ${partyName}`)
+    + (note ? ` | ${note}` : "");
+
+  await setDoc(doc(db(), "payments", id), {
+    serverId: id, reference, partyType, partyId, amount, method: method || "cash", note: note || "",
+    createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+
+  // A customer paying us reduces what they owe (balance goes down); us paying a
+  // supplier reduces what we owe them — both are a negative adjustment, mirroring
+  // adjustCustomerBalance()/adjustSupplierBalance() on the Android side.
+  const coll = partyType === "customer" ? "customers" : "suppliers";
+  await updateDoc(doc(db(), coll, partyId), { balance: increment(-amount), updatedAt: Date.now() });
+
+  const cashId = ids.cashTransaction();
+  await setDoc(doc(db(), "cash_transactions", cashId), {
+    serverId: cashId, type: partyType === "customer" ? "IN" : "OUT", method: (method || "cash").toLowerCase(),
+    amount, reason: reasonText, reference,
+    createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+
+  return id;
+}
+
 // ---------- Product CRUD (mirrors ProductActivity.kt's save logic + Database.kt's
 // Product entity). Doc id === barcode. `stock` is deliberately never overwritten by
 // a plain save here (same reasoning as productJson() on Android) — a brand-new
@@ -884,6 +945,46 @@ export async function loadRecentExpenses(limitCount = 50) {
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "expenses"), where("branchId", "==", bId)));
   return snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
+}
+
+// ---------- Stock Adjustments & Stock Taking (new `stock_adjustments`
+// collection — each row is one delta applied to a product's `stock` field,
+// using the exact same increment()-only mechanism Sale/Purchase already use
+// above, so this can never race a concurrent sale/purchase. `type` is
+// "adjustment" (single ad-hoc correction, e.g. Damage/Theft/Correction) or
+// "stocktake" (physical-count reconciliation — saveStockTake() below writes
+// one row per changed product in a single round, reason fixed to "Stock
+// Take"). deltaSmallest is always in the product's smallest unit, same basis
+// `stock` itself is stored in. ----------
+
+export async function saveStockAdjustment({ barcode, product, deltaSmallest, qtyEntered, unit, reason, note, type }) {
+  const bId = branchId();
+  const id = ids.stockAdjustment();
+  await setDoc(doc(db(), "stock_adjustments", id), {
+    serverId: id, barcode, product, deltaSmallest,
+    qtyEntered: qtyEntered || 0, unit: unit || "",
+    reason: reason || "", note: note || "", type: type || "adjustment",
+    createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+  await updateDoc(doc(db(), "products", barcode), { stock: increment(deltaSmallest), updatedAt: Date.now() });
+  return id;
+}
+
+/** entries: [{barcode, product, deltaSmallest, countedSmallest}] — one
+ *  stock_adjustments row + one product stock increment per entry. */
+export async function saveStockTake(entries) {
+  for (const e of entries) {
+    await saveStockAdjustment({
+      barcode: e.barcode, product: e.product, deltaSmallest: e.deltaSmallest,
+      qtyEntered: e.countedSmallest, unit: "", reason: "Stock Take", note: "", type: "stocktake"
+    });
+  }
+}
+
+export async function loadRecentStockAdjustments(limitCount = 30) {
+  const bId = branchId();
+  const snap = await getDocs(query(collection(db(), "stock_adjustments"), where("branchId", "==", bId)));
+  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
 }
 
 // ---------- Profit & Loss report (mirrors ReportsActivity.kt's loadReport() —

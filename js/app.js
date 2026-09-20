@@ -14,7 +14,8 @@ import { initPurchaseScreen, refreshPurchaseSupplierList, enterPurchaseEditMode 
 import { initPurchaseHistoryScreen, renderPurchaseHistory } from "./purchaseHistory.js";
 import { initProductsScreen, refreshProductsScreen } from "./products.js";
 import { initPartiesScreen, refreshPartiesList } from "./parties.js";
-import { initReportsScreens, renderDayBook, renderStock, renderPnl, renderBalanceSheet } from "./reports.js";
+import { initReportsScreens, renderDayBook, renderPnl, renderBalanceSheet } from "./reports.js";
+import { initStockScreens, renderStockScreen } from "./stock.js";
 import { initCashScreen, refreshCashScreen } from "./cash.js";
 import { initExpensesScreen, refreshExpensesScreen } from "./expenses.js";
 import { initStaffUsersScreen, renderStaffUsersList } from "./users.js";
@@ -69,7 +70,7 @@ function showScreen(name) {
   if (name === "purchaseHistory") renderPurchaseHistory();
   if (name === "saleHistory") renderSaleHistory();
   if (name === "products") refreshProductsScreen();
-  if (name === "stock") renderStock();
+  if (name === "stock") renderStockScreen();
   if (name === "parties") refreshPartiesList();
   if (name === "cash") refreshCashScreen();
   if (name === "expenses") refreshExpensesScreen();
@@ -110,6 +111,7 @@ function wireShopInfoOnlySave() {
 async function boot() {
   wireNav();
   initReportsScreens();
+  initStockScreens();
   wireShopInfoOnlySave();
 
   if (!isConfigured()) {

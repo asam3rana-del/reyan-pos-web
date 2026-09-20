@@ -1,4 +1,4 @@
-import { loadDayBook, lowStockProducts, products, customers, loadPnL, loadBalanceSheet } from "./data.js";
+import { loadDayBook, products, customers, loadPnL, loadBalanceSheet } from "./data.js";
 import { printSaleReceipt } from "./print.js";
 
 function el(id) { return document.getElementById(id); }
@@ -11,8 +11,6 @@ export function initReportsScreens() {
   const dateInput = document.getElementById("dayBookDate");
   dateInput.value = new Date().toISOString().slice(0, 10);
   dateInput.addEventListener("change", () => renderDayBook(dateInput.value));
-
-  document.getElementById("lowStockOnly").addEventListener("change", renderStock);
 
   initPnlBalanceSheetTabs();
 }
@@ -49,33 +47,6 @@ export async function renderDayBook(dateStr) {
   summary.className = "card row-between total-row";
   summary.innerHTML = `<span>Day Total</span><span>${money(dayTotal)}</span>`;
   box.prepend(summary);
-}
-
-export function renderStock() {
-  const box = document.getElementById("stockList");
-  const onlyLow = document.getElementById("lowStockOnly").checked;
-  const list = onlyLow ? lowStockProducts() : products;
-  box.innerHTML = "";
-  if (!list.length) { box.innerHTML = "<p class='muted'>Koi item nahi mila.</p>"; return; }
-  list
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .forEach(p => {
-      const low = (p.stock || 0) <= (p.reorderLevel || 0);
-      const div = document.createElement("div");
-      div.className = "card row-between";
-      div.innerHTML = `
-        <div>
-          <div><b>${p.name}</b></div>
-          <div class="muted">${p.category || ""}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="color:${low ? "var(--red)" : "var(--text-dark)"}; font-weight:800;">${p.stock} ${p.unit}</div>
-          <div class="muted">reorder at ${p.reorderLevel}</div>
-        </div>
-      `;
-      box.appendChild(div);
-    });
 }
 
 // ================================================================

@@ -1,10 +1,13 @@
 import {
-  customers, suppliers, saveCustomer, saveSupplier, deleteCustomer, deleteSupplier
+  customers, suppliers, saveCustomer, saveSupplier, deleteCustomer, deleteSupplier,
+  loadPartyTransactions, loadPartyPayments, savePartyPayment
 } from "./data.js";
 import { showToast } from "./ui.js";
+import { printSaleReceipt, printPurchaseReceipt } from "./print.js";
 
 let activeType = "customer";  // "customer" | "supplier"
 let editingId = null;         // doc id being edited, or null for "add new"
+let viewingParty = null;      // the party object currently open in detail view, or null
 
 function el(id) { return document.getElementById(id); }
 
@@ -92,6 +95,7 @@ function renderList() {
           ${money(Math.abs(balance))} ${balance > 0 ? "· " + owesLabel : ""}
         </div>
         <div class="party-row-actions">
+          <span class="party-view" data-id="${p.id}">View</span>
           <span class="party-edit" data-id="${p.id}">Edit</span>
           <span class="party-delete" data-id="${p.id}">Delete</span>
         </div>
@@ -100,6 +104,12 @@ function renderList() {
     box.appendChild(div);
   });
 
+  box.querySelectorAll(".party-view").forEach(elm => {
+    elm.addEventListener("click", () => {
+      const p = currentList().find(x => x.id === elm.dataset.id);
+      if (p) openPartyDetail(p);
+    });
+  });
   box.querySelectorAll(".party-edit").forEach(elm => {
     elm.addEventListener("click", () => {
       const p = currentList().find(x => x.id === elm.dataset.id);
@@ -114,7 +124,141 @@ function renderList() {
   });
 }
 
+// ================================================================
+// Party detail view — this party's sales/purchases + payments merged
+// chronologically, plus Receive Payment (customer) / Make Payment (supplier).
+// Mirrors the Android app's PartyTransactionActivity, minus its per-line
+// billed-items edit/delete dialog (out of scope for this round).
+// ================================================================
+
+function openPartyDetail(party) {
+  viewingParty = party;
+  el("partyListView").classList.add("hidden");
+  el("partyDetailView").classList.remove("hidden");
+  el("partyPaymentCard").classList.add("hidden");
+  el("btnPartyRecordPayment").textContent = activeType === "customer" ? "💰 Record Receive Payment" : "💰 Record Make Payment";
+  el("partyPaymentTitle").textContent = activeType === "customer" ? "Receive Payment" : "Make Payment";
+  renderPartyDetailHeader();
+  renderPartyTransactions();
+}
+
+function closePartyDetail() {
+  viewingParty = null;
+  el("partyDetailView").classList.add("hidden");
+  el("partyListView").classList.remove("hidden");
+  renderList(); // balance may have changed from a payment just recorded
+}
+
+function renderPartyDetailHeader() {
+  const p = viewingParty;
+  const balance = p.balance || 0;
+  const owesLabel = activeType === "customer" ? "You'll get" : "You'll give";
+  el("partyDetailHeader").innerHTML = `
+    <div class="card-title">${p.name}</div>
+    <div class="muted">${p.phone || "—"}</div>
+    <div style="margin-top:8px; font-weight:800; font-size:16px; color:${balance > 0 ? "var(--teal-fg)" : "var(--text-muted)"};">
+      ${money(Math.abs(balance))} ${balance !== 0 ? "· " + owesLabel : ""}
+    </div>
+  `;
+}
+
+async function renderPartyTransactions() {
+  const box = el("partyTransactionsList");
+  box.innerHTML = "<p class='muted'>Loading…</p>";
+  const p = viewingParty;
+
+  const [bills, payments] = await Promise.all([
+    loadPartyTransactions(p.id, activeType),
+    loadPartyPayments(p.id, activeType)
+  ]);
+  const entries = [...bills, ...payments].sort((a, b) => b.createdAt - a.createdAt);
+
+  box.innerHTML = "";
+  if (!entries.length) { box.innerHTML = "<p class='muted'>Abhi tak koi transaction nahi.</p>"; return; }
+
+  entries.forEach(entry => box.appendChild(partyTxRow(entry)));
+}
+
+function partyTxRow(entry) {
+  const div = document.createElement("div");
+  div.className = "card row-between";
+  const when = new Date(entry.createdAt).toLocaleString();
+
+  if (entry.kind === "payment") {
+    const label = entry.partyType === "customer" ? "Payment Received" : "Payment Made";
+    div.innerHTML = `
+      <div>
+        <div><b>💰 ${label}</b></div>
+        <div class="muted">${entry.method}${entry.note ? " · " + entry.note : ""} · ${when}</div>
+      </div>
+      <div style="font-weight:800; color:var(--teal-fg)">${money(entry.amount)}</div>
+    `;
+    return div;
+  }
+
+  const isSale = entry.kind === "sale";
+  const label = isSale ? `🛒 Sale — ${entry.invoice}` : `🧾 Purchase — ${entry.billNo}`;
+  const statusNote = entry.status !== "active" ? " · " + entry.status : "";
+  div.innerHTML = `
+    <div>
+      <div><b>${label}</b></div>
+      <div class="muted">${when} · ${entry.itemCount || 0} items${statusNote}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-weight:800;">${money(entry.total)}</div>
+      <span class="party-tx-print">🖨 Print</span>
+    </div>
+  `;
+  div.querySelector(".party-tx-print").addEventListener("click", () => {
+    if (isSale) printSaleReceipt(entry, viewingParty.name);
+    else printPurchaseReceipt(entry, viewingParty.name);
+  });
+  return div;
+}
+
+function initPartyPaymentForm() {
+  el("btnPartyDetailBack").addEventListener("click", closePartyDetail);
+
+  el("btnPartyRecordPayment").addEventListener("click", () => {
+    el("paymentAmount").value = "";
+    el("paymentMethod").value = "cash";
+    el("paymentNote").value = "";
+    el("partyPaymentCard").classList.remove("hidden");
+    el("paymentAmount").focus();
+  });
+  el("btnCancelPayment").addEventListener("click", () => el("partyPaymentCard").classList.add("hidden"));
+
+  el("btnSavePayment").addEventListener("click", async () => {
+    const amount = parseFloat(el("paymentAmount").value) || 0;
+    if (amount <= 0) { showToast("Sahi amount likhein"); return; }
+    const method = el("paymentMethod").value;
+    const note = el("paymentNote").value.trim();
+
+    el("btnSavePayment").disabled = true;
+    try {
+      await savePartyPayment({
+        partyId: viewingParty.id, partyType: activeType, partyName: viewingParty.name,
+        amount, method, note
+      });
+      showToast("Payment save ho gayi");
+      el("partyPaymentCard").classList.add("hidden");
+      // Pull the freshly-updated balance from the live `customers`/`suppliers` cache
+      // (the listener's onSnapshot will have already applied the increment by now).
+      const fresh = currentList().find(x => x.id === viewingParty.id);
+      if (fresh) viewingParty = fresh;
+      renderPartyDetailHeader();
+      renderPartyTransactions();
+    } catch (e) {
+      showToast("Error: " + e.message);
+    } finally {
+      el("btnSavePayment").disabled = false;
+    }
+  });
+}
+
 export function initPartiesScreen() {
+  initPartyPaymentForm();
+
   el("tabCustomers").addEventListener("click", () => switchType("customer"));
   el("tabSuppliers").addEventListener("click", () => switchType("supplier"));
   el("partySearch").addEventListener("input", renderList);
@@ -149,5 +293,11 @@ export function initPartiesScreen() {
 }
 
 export function refreshPartiesList() {
-  renderList();
+  if (viewingParty) {
+    const fresh = currentList().find(x => x.id === viewingParty.id);
+    if (fresh) viewingParty = fresh;
+    renderPartyDetailHeader();
+  } else {
+    renderList();
+  }
 }
