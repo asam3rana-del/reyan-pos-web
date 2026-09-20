@@ -1,5 +1,8 @@
 import { isConfigured, ensureSignedIn, branchId } from "./firebase-init.js";
-import { startProductListener, startCustomerListener, startSupplierListener, startUserListener } from "./data.js";
+import {
+  startProductListener, startCustomerListener, startSupplierListener, startUserListener,
+  startCategoryListener, startUnitListener
+} from "./data.js";
 import { initSetupScreen } from "./setup.js";
 import { getShopInfo, saveShopInfo } from "./shop.js";
 import { getSession, clearSession } from "./auth.js";
@@ -8,6 +11,7 @@ import { refreshDashboard, initDashboard } from "./dashboard.js";
 import { initSaleScreen, focusQuickSale, refreshSaleCustomerList } from "./sale.js";
 import { initPurchaseScreen, refreshPurchaseSupplierList, enterPurchaseEditMode } from "./purchase.js";
 import { initPurchaseHistoryScreen, renderPurchaseHistory } from "./purchaseHistory.js";
+import { initProductsScreen, refreshProductsScreen } from "./products.js";
 import { initPartiesScreen, refreshPartiesList } from "./parties.js";
 import { initReportsScreens, renderDayBook, renderStock, renderPnl, renderBalanceSheet } from "./reports.js";
 import { initCashScreen, refreshCashScreen } from "./cash.js";
@@ -62,6 +66,7 @@ function showScreen(name) {
   if (name === "dashboard") refreshDashboard();
   if (name === "dayBook") renderDayBook(document.getElementById("dayBookDate").value);
   if (name === "purchaseHistory") renderPurchaseHistory();
+  if (name === "products") refreshProductsScreen();
   if (name === "stock") renderStock();
   if (name === "parties") refreshPartiesList();
   if (name === "cash") refreshCashScreen();
@@ -162,10 +167,12 @@ function enterApp(session) {
     location.reload();
   });
 
-  startProductListener(() => { /* products cache refreshes automatically */ });
+  startProductListener(() => { refreshProductsScreen(); });
   startCustomerListener(() => { refreshSaleCustomerList(); refreshPartiesList(); });
   startSupplierListener(() => { refreshPurchaseSupplierList(); refreshPartiesList(); });
   startUserListener(() => { renderStaffUsersList(); });
+  startCategoryListener(() => { refreshProductsScreen(); });
+  startUnitListener(() => { refreshProductsScreen(); });
 
   initSaleScreen();
   initPurchaseScreen();
@@ -175,6 +182,7 @@ function enterApp(session) {
       showScreen("purchase");
     }
   });
+  initProductsScreen();
   initPartiesScreen();
   initCashScreen();
   initExpensesScreen();

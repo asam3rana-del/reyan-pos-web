@@ -19,8 +19,11 @@ export let products = [];   // [{barcode,name,category,cost,salePrice,stock,unit
 export let customers = [];  // [{id (doc id), name, phone, balance, ...}]
 export let suppliers = [];  // [{id (doc id), name, phone, balance, ...}]
 export let users = [];      // [{id (doc id), username, displayName, role, active, webPasswordHash, ...}]
+export let categories = []; // [{name}] — doc id === name, mirrors Category.kt
+export let units = [];      // [{name}] — doc id === name, mirrors UnitType.kt
 
 let _productsUnsub = null, _customersUnsub = null, _suppliersUnsub = null, _usersUnsub = null;
+let _categoriesUnsub = null, _unitsUnsub = null;
 
 export function startProductListener(onChange) {
   if (_productsUnsub) _productsUnsub();
@@ -29,6 +32,50 @@ export function startProductListener(onChange) {
     products = snap.docs.map(d => ({ ...d.data(), barcode: d.id }));
     onChange && onChange(products);
   });
+}
+
+// ---------- Categories / Units master lists (mirrors ItemsActivity.kt's
+// Categories/Units tabs — both are just a name, doc id === name so a
+// category/unit added here or on Android lands on the same document). ----------
+
+export function startCategoryListener(onChange) {
+  if (_categoriesUnsub) _categoriesUnsub();
+  const q = query(collection(db(), "categories"), where("branchId", "==", branchId()));
+  _categoriesUnsub = onSnapshot(q, (snap) => {
+    categories = snap.docs.map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
+    onChange && onChange(categories);
+  });
+}
+
+export function startUnitListener(onChange) {
+  if (_unitsUnsub) _unitsUnsub();
+  const q = query(collection(db(), "units"), where("branchId", "==", branchId()));
+  _unitsUnsub = onSnapshot(q, (snap) => {
+    units = snap.docs.map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
+    onChange && onChange(units);
+  });
+}
+
+export async function saveCategory(name) {
+  const n = (name || "").trim();
+  if (!n) throw new Error("Category name required");
+  await setDoc(doc(db(), "categories", n), { name: n, updatedAt: Date.now(), branchId: branchId() });
+  return n;
+}
+
+export async function deleteCategory(name) {
+  await deleteDoc(doc(db(), "categories", name));
+}
+
+export async function saveUnit(name) {
+  const n = (name || "").trim();
+  if (!n) throw new Error("Unit name required");
+  await setDoc(doc(db(), "units", n), { name: n, updatedAt: Date.now(), branchId: branchId() });
+  return n;
+}
+
+export async function deleteUnit(name) {
+  await deleteDoc(doc(db(), "units", name));
 }
 
 export function startCustomerListener(onChange) {
@@ -176,6 +223,74 @@ export async function deleteCustomer(id) {
 
 export async function deleteSupplier(id) {
   await deleteDoc(doc(db(), "suppliers", id));
+}
+
+// ---------- Product CRUD (mirrors ProductActivity.kt's save logic + Database.kt's
+// Product entity). Doc id === barcode. `stock` is deliberately never overwritten by
+// a plain save here (same reasoning as productJson() on Android) — a brand-new
+// product's opening stock goes in via increment(), same mechanism Purchase/Sale use,
+// so it can never silently clobber a concurrent sale/purchase's stock change. ----------
+
+export function findProductByBarcode(barcode) {
+  return products.find(p => p.barcode === barcode) || null;
+}
+
+/** editingBarcode: pass an existing product's barcode to edit it (stock/openingStock
+ *  left untouched); pass null/empty to create a new product (barcode auto-generated
+ *  if left blank, same "P" + timestamp scheme as ProductActivity.kt). */
+export async function saveProduct({
+  editingBarcode, barcode, name, searchTag, category, unit,
+  secondaryUnit, secondaryUnitQty, cost, salePrice, wholesalePrice,
+  reorderLevel, expiry, openingStock
+}) {
+  const bId = branchId();
+  const n = (name || "").trim();
+  if (!n) throw new Error("Name required");
+  const finalUnit = (unit || "pcs").trim();
+  const hasSecondary = !!secondaryUnit && (secondaryUnitQty || 0) > 0;
+
+  const baseFields = {
+    name: n,
+    searchTag: (searchTag || "").trim(),
+    category: (category || "").trim() || "General",
+    cost: cost || 0,
+    salePrice: salePrice || 0,
+    wholesalePrice: wholesalePrice || 0,
+    unit: finalUnit,
+    secondaryUnit: hasSecondary ? secondaryUnit.trim() : "",
+    secondaryUnitQty: hasSecondary ? (secondaryUnitQty || 0) : 0,
+    reorderLevel: Math.max(0, reorderLevel || 0),
+    expiry: (expiry || "").trim(),
+    updatedAt: Date.now(),
+    branchId: bId
+  };
+
+  if (editingBarcode) {
+    // Edit: never touch stock/openingStock, same as Android's `existing != null` branch.
+    await setDoc(doc(db(), "products", editingBarcode), baseFields, { merge: true });
+    return editingBarcode;
+  }
+
+  // New product.
+  const finalBarcode = (barcode || "").trim() || ("P" + Date.now());
+  const openingQty = openingStock || 0;
+  // Opening stock is entered in the product's main `unit` — convert to smallest
+  // units the same way toSmallestUnits() does for Purchase/Sale lines.
+  const smallestOpening = hasSecondary ? openingQty * secondaryUnitQty : openingQty;
+
+  await setDoc(doc(db(), "products", finalBarcode), {
+    ...baseFields,
+    openingStock: smallestOpening,
+    stock: 0 // set to 0 then incremented below, so this can never race a concurrent sale/purchase
+  });
+  if (smallestOpening > 0) {
+    await updateDoc(doc(db(), "products", finalBarcode), { stock: increment(smallestOpening) });
+  }
+  return finalBarcode;
+}
+
+export async function deleteProduct(barcode) {
+  await deleteDoc(doc(db(), "products", barcode));
 }
 
 // ---------- Save a sale (mirrors SyncQueueHelper.saleJson() field-for-field) ----------
