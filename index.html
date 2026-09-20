@@ -28,6 +28,7 @@
       <nav id="mainNav" class="main-nav">
         <button data-screen="dashboard" class="nav-btn active">Dashboard</button>
         <button data-screen="sale" class="nav-btn">Sale</button>
+        <button data-screen="saleHistory" class="nav-btn">Sale History</button>
         <button data-screen="purchase" class="nav-btn">Purchase</button>
         <button data-screen="purchaseHistory" class="nav-btn">Purchase History</button>
         <button data-screen="products" class="nav-btn">Items</button>
@@ -419,6 +420,13 @@
     <h1>Purchase History</h1>
     <input id="purchaseHistorySearch" type="text" placeholder="Search by bill no or supplier..." />
     <div id="purchaseHistoryList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: SALE HISTORY ================= -->
+  <section id="screen-saleHistory" class="screen hidden">
+    <h1>Sale History</h1>
+    <input id="saleHistorySearch" type="text" placeholder="Search by invoice or customer..." />
+    <div id="saleHistoryList" class="list-box"></div>
   </section>
 
   <!-- ================= SCREEN: PRODUCTS / CATEGORIES / UNITS (Items hub) ================= -->
