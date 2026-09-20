@@ -253,11 +253,13 @@ label {
 /* ---------- Parties (Customers/Suppliers) ---------- */
 .party-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .party-row-actions { margin-top: 6px; }
-.party-edit, .party-delete {
+.party-view, .party-edit, .party-delete {
   font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 12px;
 }
+.party-view { color: var(--teal-fg); }
 .party-edit { color: var(--blue-fg); }
 .party-delete { color: var(--red); }
+.party-tx-print { font-size: 12px; font-weight: 700; cursor: pointer; margin-top: 4px; display: inline-block; color: var(--blue-fg); }
 #partySearch { margin: 16px 0 4px; }
 
 /* ---------- Expenses ---------- */
