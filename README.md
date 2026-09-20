@@ -13,7 +13,12 @@ kar sakte hain, aur Android tablet ke sath data automatically milta rahega
 - ✅ Sale/Billing screen — computer POS jaisa (two-pane: item entry left,
   cart/total/payment right, hamesha visible)
 - ✅ Day Book (date-wise sales list)
-- ✅ Stock Report (Low Stock filter)
+- ✅ Stock — 3 tabs: Report (Low Stock filter), Adjust (single ad-hoc
+  correction — Add/Remove qty with a reason: Damage/Expired/Theft-Loss/
+  Correction/Other), Take (bulk physical-count reconciliation — edit counted
+  qty for as many products as needed, only changed rows get saved). Every
+  adjustment writes to a new `stock_adjustments` collection and increments
+  the product's `stock` field the same increment()-only way Sale/Purchase do.
 - ✅ Purchase screen — Sale jaisa hi two-pane layout (supplier + bill date,
   item entry left, bill/payment right). Save karne par stock barhta hai,
   product ka cost weighted-average se update hota hai (bilkul Android app
@@ -42,7 +47,15 @@ kar sakte hain, aur Android tablet ke sath data automatically milta rahega
   overwrite nahi hota — sirf sale/purchase/payment se increment hota hai
   (bilkul Android app ke `PartyRepository.kt`/`SyncQueueHelper.kt` jaisa),
   is liye do devices ek waqt mein alag cheezein edit karein to balance kabhi
-  out of sync nahi hota.
+  out of sync nahi hota. Har party par ab ek **View** button bhi hai —
+  Android app ki `PartyTransactionActivity.kt` jaisi detail screen khulti
+  hai: us party ki sab sales/purchases + payments ek hi jagah, tareekh ke
+  hisaab se, aur ek **Record Payment** button (customer ke liye "Receive
+  Payment", supplier ke liye "Make Payment") — amount/method/note dala jaye
+  to balance khud-ba-khud kam ho jata hai (naya `payments` collection) aur
+  saath hi `cash_transactions` mein bhi IN/OUT entry ban jati hai, taake
+  Balance Sheet ka Cash in Hand sahi rahe. (Scope note: Android wali
+  per-item billed-items edit/delete dialog abhi is round mein nahi banayi.)
 - ✅ Reports screen — do tabs:
   - **Profit & Loss**: Today/This Week/This Month/All Time filter pills, Total
     Sales/Gross Profit/Total Purchases/Total Expenses cards, poora P&L
