@@ -364,7 +364,90 @@ export async function saveSale({ lines, customerName, saleType, subtotal, discou
   return invoice;
 }
 
-// ---------- Save a purchase (mirrors PurchaseRepository.savePurchase() +
+// ---------- Sale history / return / delete (mirrors SaleHistoryActivity.kt —
+// unlike Purchase, Android's Sale History only offers Return + Delete, no Edit,
+// so this section doesn't need an updateSaleBill() counterpart). ----------
+
+export async function loadSaleHistory() {
+  const bId = branchId();
+  const q = query(collection(db(), "sales"), where("branchId", "==", bId));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function getSaleByInvoice(invoice) {
+  const snap = await getDoc(doc(db(), "sales", ids.sale(invoice)));
+  return snap.exists() ? snap.data() : null;
+}
+
+// Reverses a sale's stock + customer-balance effects (the exact inverse of the
+// "decrement stock, bump customer balance" block inside saveSale() above), and
+// removes any payment/cash_transaction docs tied to this invoice. Shared by
+// both deleteSaleBill() and returnSaleBill() below, same as Android's
+// returnSale()/deleteSale() both doing the same reversal math before diverging
+// on whether the sale record itself is kept (status="returned") or removed.
+async function reverseSaleEffects(sale) {
+  for (const it of (sale.items || [])) {
+    const product = products.find(p => p.barcode === it.barcode);
+    const smallest = it.conversionFactor > 0
+      ? it.qty * it.conversionFactor
+      : toSmallestUnits(product || { unit: it.unit, secondaryUnit: "", secondaryUnitQty: 0, tertiaryUnit: "", tertiaryUnitQty: 0 }, it.qty, it.unit);
+    if (smallest <= 0) continue;
+    try {
+      await updateDoc(doc(db(), "products", it.barcode), { stock: increment(smallest), updatedAt: Date.now() });
+    } catch (e) {
+      console.warn("Stock reversal failed for", it.barcode, e);
+    }
+  }
+
+  const outstanding = (sale.total || 0) - (sale.paid || 0);
+  if (sale.customerServerId && outstanding > 0) {
+    try {
+      await updateDoc(doc(db(), "customers", sale.customerServerId), { balance: increment(-outstanding), updatedAt: Date.now() });
+    } catch (e) {
+      console.warn("Customer balance reversal failed", e);
+    }
+  }
+
+  await deleteDocsByReference("payments", sale.invoice);
+  await deleteDocsByReference("cash_transactions", sale.invoice);
+}
+
+// Deletes a sale entirely — reverses stock/customer-balance first, no trace left.
+export async function deleteSaleBill(invoice) {
+  const sale = await getSaleByInvoice(invoice);
+  if (!sale) throw new Error("Sale not found");
+  await reverseSaleEffects(sale);
+  await deleteDoc(doc(db(), "sales", ids.sale(invoice)));
+}
+
+// Returns a sale — same reversal as delete, but the sale record is KEPT with
+// status="returned" (so it still shows in Day Book/Reports as a returned sale,
+// same as Android), and one `returns` doc per line item is logged for future
+// Sale-Returns reporting (mirrors ReturnLine — see Database.kt).
+export async function returnSaleBill(invoice) {
+  const sale = await getSaleByInvoice(invoice);
+  if (!sale) throw new Error("Sale not found");
+  if (sale.status === "returned") throw new Error("Already returned");
+  const bId = branchId();
+
+  await reverseSaleEffects(sale);
+
+  for (const it of (sale.items || [])) {
+    const rId = ids.returnLine();
+    try {
+      await setDoc(doc(db(), "returns", rId), {
+        serverId: rId, reference: invoice, type: "sale",
+        barcode: it.barcode, qty: it.qty, amount: it.amount,
+        createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+      });
+    } catch (e) {
+      console.warn("Return line record failed for", it.barcode, e);
+    }
+  }
+
+  await updateDoc(doc(db(), "sales", ids.sale(invoice)), { status: "returned", updatedAt: Date.now() });
+} (mirrors PurchaseRepository.savePurchase() +
 // SyncQueueHelper.purchaseJson() field-for-field — create-only for now, same
 // as saveSale(); editing an existing bill is a later phase, like the Android
 // history screen's edit flow). ----------

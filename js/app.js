@@ -9,6 +9,7 @@ import { getSession, clearSession } from "./auth.js";
 import { initLoginScreen } from "./login.js";
 import { refreshDashboard, initDashboard } from "./dashboard.js";
 import { initSaleScreen, focusQuickSale, refreshSaleCustomerList } from "./sale.js";
+import { initSaleHistoryScreen, renderSaleHistory } from "./saleHistory.js";
 import { initPurchaseScreen, refreshPurchaseSupplierList, enterPurchaseEditMode } from "./purchase.js";
 import { initPurchaseHistoryScreen, renderPurchaseHistory } from "./purchaseHistory.js";
 import { initProductsScreen, refreshProductsScreen } from "./products.js";
@@ -66,6 +67,7 @@ function showScreen(name) {
   if (name === "dashboard") refreshDashboard();
   if (name === "dayBook") renderDayBook(document.getElementById("dayBookDate").value);
   if (name === "purchaseHistory") renderPurchaseHistory();
+  if (name === "saleHistory") renderSaleHistory();
   if (name === "products") refreshProductsScreen();
   if (name === "stock") renderStock();
   if (name === "parties") refreshPartiesList();
@@ -175,6 +177,7 @@ function enterApp(session) {
   startUnitListener(() => { refreshProductsScreen(); });
 
   initSaleScreen();
+  initSaleHistoryScreen();
   initPurchaseScreen();
   initPurchaseHistoryScreen({
     onEdit: (purchase, supplierName) => {
