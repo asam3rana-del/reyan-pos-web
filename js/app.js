@@ -109,6 +109,7 @@ function wireShopInfoOnlySave() {
 }
 
 async function boot() {
+  window.__appBooted = true; // tells index.html's diagnostic banner the module graph loaded
   wireNav();
   initReportsScreens();
   initStockScreens();
