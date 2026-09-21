@@ -109,6 +109,15 @@ export function ensureSignedIn() {
       if (user) resolve(user.uid);
     });
     signInAnonymously(f.auth).catch(reject);
+  }).catch((err) => {
+    // A failed attempt must NOT be cached forever — otherwise every retry
+    // (even after fixing the config) just replays the same stuck failure
+    // with no visible change on screen. Reset so the next call starts fresh.
+    _readyPromise = null;
+    _app = null;
+    _auth = null;
+    _db = null;
+    throw err;
   });
   return _readyPromise;
 }
