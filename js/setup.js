@@ -45,10 +45,16 @@ export function initSetupScreen(onConnected) {
       address: el("cfgShopAddress").value
     });
 
+    // Visible confirmation the click was even received, before we know
+    // whether sign-in will succeed or fail — helps tell "nothing happened"
+    // apart from "it tried and silently failed" on devices with no console access.
+    alert("Connect dabaya gaya — sign-in try ho raha hai...");
+
     try {
       const uid = await ensureSignedIn();
       el("deviceIdBox").classList.remove("hidden");
       el("deviceIdText").textContent = uid;
+      alert("Connected! Device ID: " + uid);
       if (onConnected) {
         try {
           await onConnected();
@@ -57,8 +63,10 @@ export function initSetupScreen(onConnected) {
         }
       }
     } catch (e) {
-      err.textContent = "Connect nahi ho saka — values dobara check karein. (" + e.message + ")";
+      const msg = "Connect nahi ho saka — values dobara check karein. (" + (e && e.message ? e.message : e) + ")";
+      err.textContent = msg;
       err.classList.remove("hidden");
+      alert(msg);
     }
   });
 }
