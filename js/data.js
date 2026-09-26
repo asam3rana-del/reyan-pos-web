@@ -1282,3 +1282,68 @@ export async function loadBalanceSheet() {
     netProfit, capital
   };
 }
+
+// ---------- Zakat (mirrors ZakatActivity.kt — `zakat_years`/`zakat_payments`
+// Firestore collections, field-for-field, so a year/payment started here is
+// indistinguishable from one started on the Android app. zakat_month_plans
+// stays device-local on Android (no server collection) so it's kept the same
+// way here — see zakat.js's localStorage-based month-plan helpers instead. ----------
+
+export async function loadLatestZakatYear() {
+  const bId = branchId();
+  const snap = await getDocs(query(collection(db(), "zakat_years"), where("branchId", "==", bId)));
+  const years = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  years.sort((a, b) => (b.startDate || 0) - (a.startDate || 0));
+  return years[0] || null;
+}
+
+export async function saveZakatYear({ startDate, endDate, assetsSnapshot, totalPayable, currency, calendarType }) {
+  const bId = branchId();
+  const id = ids.zakatYear();
+  await setDoc(doc(db(), "zakat_years", id), {
+    serverId: id, startDate, endDate, assetsSnapshot, totalPayable,
+    currency: currency || "Rs", calendarType: calendarType || "islamic",
+    createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+  return id;
+}
+
+export async function updateZakatYear(serverId, { assetsSnapshot, totalPayable, currency, calendarType }) {
+  await updateDoc(doc(db(), "zakat_years", serverId), {
+    assetsSnapshot, totalPayable, currency, calendarType, updatedAt: Date.now()
+  });
+}
+
+export async function loadZakatPayments(yearServerId) {
+  const snap = await getDocs(query(collection(db(), "zakat_payments"), where("zakatYearServerId", "==", yearServerId)));
+  return snap.docs.map(d => d.data()).sort((a, b) => (b.paymentDate || 0) - (a.paymentDate || 0));
+}
+
+// Records a Zakat payment AND mirrors it as an Expense (category "Zakat") +
+// a cash_transactions OUT row — same as ZakatActivity.kt's savePayment()
+// (one withTransaction{} there) — so Cash in Hand/Bank Balance and the P&L's
+// Total Expenses stay in sync whether the payment is logged from Android or here.
+export async function saveZakatPayment(year, { amount, method, note, category, paymentDate }) {
+  const bId = branchId();
+  const paymentId = ids.zakatPayment();
+  const expenseId = ids.expense();
+  const cashTxId = ids.cashTransaction();
+  const desc = "Zakat payment (" + new Date(year.startDate).toLocaleDateString() + " — " + new Date(year.endDate).toLocaleDateString() + ")" + (note ? " | " + note : "");
+
+  await setDoc(doc(db(), "zakat_payments", paymentId), {
+    serverId: paymentId, zakatYearServerId: year.serverId, amount,
+    method: method || "cash", note: note || "", category: category || "",
+    paymentDate: paymentDate || Date.now(),
+    createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+  await setDoc(doc(db(), "expenses", expenseId), {
+    serverId: expenseId, category: "Zakat", description: desc, amount,
+    createdAt: paymentDate || Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+  await setDoc(doc(db(), "cash_transactions", cashTxId), {
+    serverId: cashTxId, type: "OUT", method: (method || "cash").toLowerCase(), amount,
+    reason: "Expense: Zakat", reference: expenseId,
+    createdAt: paymentDate || Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+  return paymentId;
+}

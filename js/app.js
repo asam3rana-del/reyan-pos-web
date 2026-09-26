@@ -21,6 +21,7 @@ import { initExpensesScreen, refreshExpensesScreen } from "./expenses.js";
 import { initStaffUsersScreen, renderStaffUsersList } from "./users.js";
 import { initRemindersScreen, renderReminders } from "./reminders.js";
 import { initPaymentsReportScreen, renderPaymentsReport } from "./paymentsReport.js";
+import { initZakatScreen, renderZakatScreen } from "./zakat.js";
 import { showToast } from "./ui.js";
 
 // ---------- Role-based screen access (mirrors the Android app's Phase 4
@@ -35,6 +36,7 @@ const SCREEN_ACCESS = {
   purchaseHistory: ["admin"],   // same screen family as Purchase above
   reports: ["admin", "manager"],// ReportsActivity.kt/BalanceSheetActivity.kt
   paymentsReport: ["admin", "manager"], // PaymentsReportActivity.kt — same financial-visibility gate as Reports
+  zakat: ["admin", "manager"],  // ZakatActivity.kt — same financial-visibility gate as Reports
   setup: ["admin"]              // Firebase project/branch + shop info
 };
 
@@ -79,6 +81,7 @@ function showScreen(name) {
   if (name === "expenses") refreshExpensesScreen();
   if (name === "reminders") renderReminders();
   if (name === "paymentsReport") renderPaymentsReport();
+  if (name === "zakat") renderZakatScreen();
   if (name === "reports") {
     // Refresh whichever sub-tab (P&L / Balance Sheet) is currently active.
     const bsActive = document.getElementById("tabBalanceSheet")?.classList.contains("active");
@@ -120,6 +123,7 @@ async function boot() {
   initStockScreens();
   initRemindersScreen();
   initPaymentsReportScreen();
+  initZakatScreen();
   wireShopInfoOnlySave();
 
   if (!isConfigured()) {
@@ -170,6 +174,8 @@ function enterApp(session) {
   document.querySelector('#mainNav .nav-btn[data-screen="purchaseHistory"]').classList.toggle("hidden", session.role !== "admin");
   // Reports (P&L + Balance Sheet): admin or manager, matching ReportsActivity.kt/BalanceSheetActivity.kt.
   document.querySelector('#mainNav .nav-btn[data-screen="reports"]').classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
+  // Zakat: admin or manager, matching ZakatActivity.kt's own role check.
+  document.getElementById("navZakatBtn").classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
   // Today's Profit: admin-only stat, matching MainActivity.kt's dashboard (cashier/manager only see Today's Sale).
   document.getElementById("statTodayProfitCard").classList.toggle("hidden", session.role !== "admin");
   // Staff Users card (inside Setup): admin-only, matching UserManagementActivity.kt.
