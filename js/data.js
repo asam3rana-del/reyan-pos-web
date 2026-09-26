@@ -67,6 +67,47 @@ function aliveDocs(snap) {
   return snap.docs.filter(d => d.data()._deleted !== true);
 }
 
+// ---------- Stock Movements ledger (mirrors SyncQueueHelper.logMovement() /
+// recordAuditReconciliation() field-for-field — the real Android `stock_movements`
+// collection, NOT the web-only `stock_adjustments` collection further down this
+// file). Every function below that changes a product's `stock` calls this right
+// alongside its increment(), same as Android's decreaseProductStock()/
+// increaseProductStock() wrappers do — so Android's own Stock History/Cost
+// History screens show web-made sales/purchases/adjustments too, and vice versa.
+// `type` is one of the short caps tags Android already uses: "SALE",
+// "SALE_REVERSAL", "PURCHASE", "PURCHASE_EDIT" (also used here as the generic
+// purchase-reversal tag — Android has no separate "PURCHASE_REVERSAL" tag),
+// "OPENING_STOCK", "ADJUSTMENT", "DAMAGE", "AUDIT_RECONCILE". `signedQty` is the
+// delta actually applied to stock (negative for a decrease). `unitCost`, when
+// omitted, falls back to the product's current `cost` — same as Android. Never
+// throws — a movement-log failure must not block the stock change itself. ----------
+async function logStockMovement(barcode, type, signedQty, reference, unitCost, note) {
+  if (!signedQty) return;
+  const bId = branchId();
+  const product = products.find(p => p.barcode === barcode);
+  const smallestUnit = product ? unitNames(product)[0] : "";
+  const cost = unitCost != null ? unitCost : (product ? (product.cost || 0) : 0);
+  const id = ids.stockMovement();
+  try {
+    await setDoc(doc(db(), "stock_movements", id), {
+      serverId: id, barcode, type, qty: signedQty, unit: smallestUnit, cost,
+      reference: reference || "", note: note || "",
+      createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+    });
+  } catch (e) {
+    console.warn("Stock movement log failed for", barcode, e);
+  }
+}
+
+export async function loadStockMovementsForBarcode(barcode, limitCount = 200) {
+  const bId = branchId();
+  const snap = await getDocs(query(collection(db(), "stock_movements"), where("branchId", "==", bId)));
+  return aliveDocs(snap).map(d => d.data())
+    .filter(m => m.barcode === barcode)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, limitCount);
+}
+
 // ---------- Live caches (kept simple: one listener per collection per branch) ----------
 
 export let products = [];   // [{barcode,name,category,cost,salePrice,stock,unit,...}]
@@ -443,6 +484,7 @@ export async function saveProduct({
   });
   if (smallestOpening > 0) {
     await updateDoc(doc(db(), "products", finalBarcode), { stock: increment(smallestOpening) });
+    await logStockMovement(finalBarcode, "OPENING_STOCK", smallestOpening, "", baseFields.cost, "");
   }
   return finalBarcode;
 }
@@ -501,6 +543,7 @@ export async function saveSale({ lines, customerName, saleType, subtotal, discou
         stock: increment(-smallest),
         updatedAt: Date.now()
       });
+      await logStockMovement(l.barcode, "SALE", -smallest, invoice, l.cost, "");
     } catch (e) {
       console.warn("Stock update failed for", l.barcode, e);
     }
@@ -575,6 +618,7 @@ async function reverseSaleEffects(sale) {
     if (smallest <= 0) continue;
     try {
       await updateDoc(doc(db(), "products", it.barcode), { stock: increment(smallest), updatedAt: Date.now() });
+      await logStockMovement(it.barcode, "SALE_REVERSAL", smallest, sale.invoice, it.cost, "");
     } catch (e) {
       console.warn("Stock reversal failed for", it.barcode, e);
     }
@@ -691,6 +735,7 @@ export async function savePurchase({ lines, supplierName, discount, paid, paymen
         cost: newCost,
         updatedAt: Date.now()
       });
+      await logStockMovement(l.barcode, "PURCHASE", purchasedSmallest, billNo, newCost, "");
     } catch (e) {
       console.warn("Stock/cost update failed for", l.barcode, e);
     }
@@ -796,6 +841,7 @@ async function reversePurchaseEffects(purchase, productOverrides) {
     } else {
       try {
         await updateDoc(doc(db(), "products", it.barcode), { stock: increment(-smallestQty), cost: newCost, updatedAt: Date.now() });
+        await logStockMovement(it.barcode, "PURCHASE_EDIT", -smallestQty, purchase.billNo, newCost, "");
       } catch (e) {
         console.warn("Stock/cost reversal failed for", it.barcode, e);
       }
@@ -890,8 +936,11 @@ export async function updatePurchaseBill(billNo, { lines, supplierName, discount
   // then forward via increment()" pair would have.
   for (const barcode of Object.keys(productOverrides)) {
     const p = productOverrides[barcode];
+    const liveProduct = products.find(pr => pr.barcode === barcode);
+    const netDelta = p.stock - (liveProduct ? (liveProduct.stock || 0) : 0);
     try {
       await updateDoc(doc(db(), "products", barcode), { stock: p.stock, cost: p.cost, updatedAt: Date.now() });
+      await logStockMovement(barcode, "PURCHASE_EDIT", netDelta, billNo, p.cost, "");
     } catch (e) {
       console.warn("Stock/cost update failed for", barcode, e);
     }
@@ -1088,6 +1137,15 @@ export async function saveStockAdjustment({ barcode, product, deltaSmallest, qty
     createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
   });
   await updateDoc(doc(db(), "products", barcode), { stock: increment(deltaSmallest), updatedAt: Date.now() });
+  // Map onto Android's stock_movements type tags: a physical stock-take reconciles
+  // the ledger to a counted number (Android's "AUDIT_RECONCILE"), while a single
+  // ad-hoc correction is "DAMAGE" when the chosen reason says so, else "ADJUSTMENT"
+  // — Android's own StockAdjustmentActivity picks the same two tags from a UI
+  // toggle rather than the reason text, so this is the closest text-based match.
+  const movementType = type === "stocktake"
+    ? "AUDIT_RECONCILE"
+    : (/damage/i.test(reason || "") ? "DAMAGE" : "ADJUSTMENT");
+  await logStockMovement(barcode, movementType, deltaSmallest, "", null, note || reason || "");
   return id;
 }
 
@@ -1400,4 +1458,173 @@ export async function saveZakatPayment(year, { amount, method, note, category, p
     createdAt: paymentDate || Date.now(), updatedAt: Date.now(), branchId: bId
   });
   return paymentId;
+}
+
+// ---------- App Settings (mirrors SyncQueueHelper.SYNCED_APP_SETTING_KEYS +
+// appSettingJson() — only these whitelisted shop-identity keys are ever synced;
+// everything else in Android's app_settings table (printer config, login
+// method, last-logged-in username, etc.) is deliberately device-local and never
+// reaches Firestore at all, so there's nothing else to mirror here. Doc id ===
+// key, no DeviceTag, plain upsert, never deleted (Android has no delete flow
+// for a setting either). ----------
+export const SYNCED_APP_SETTING_KEYS = new Set([
+  "shop_name", "shop_phone", "shop_address", "receipt_footer", "currency", "tax_percent"
+]);
+
+export let appSettings = {}; // { key: value } — only ever the whitelisted keys above
+let _appSettingsUnsub = null;
+
+export function startAppSettingsListener(onChange) {
+  if (_appSettingsUnsub) _appSettingsUnsub();
+  const q = query(collection(db(), "app_settings"), where("branchId", "==", branchId()));
+  _appSettingsUnsub = onSnapshot(q, (snap) => {
+    appSettings = {};
+    snap.docs.forEach(d => { appSettings[d.id] = d.data().value; });
+    onChange && onChange(appSettings);
+  });
+}
+
+export async function saveAppSetting(key, value) {
+  if (!SYNCED_APP_SETTING_KEYS.has(key)) {
+    throw new Error(`"${key}" is not a shop-wide setting — it's device-local on Android and must not be synced`);
+  }
+  await setDoc(doc(db(), "app_settings", key), {
+    key, value: String(value), updatedAt: Date.now(), branchId: branchId()
+  });
+}
+
+// ---------- Cash Register / Till (mirrors CashRegisterActivity.kt's Firestore
+// side — ONE shared register per branch per day, doc id === date (no
+// DeviceTag, same reasoning as categories/units above: a till is meant to be
+// one shared record, not per-device). No delete flow exists on either side
+// (only open/edit/close/reopen), so no tombstone handling is needed here. ----------
+export async function loadCashRegister(date) {
+  const snap = await getDoc(doc(db(), "cash_register", date));
+  return snap.exists() ? snap.data() : null;
+}
+
+/** Opens a register for `date` ONLY if one doesn't already exist there —
+ *  mirrors Android's enqueueCashRegisterCreate()'s "create_if_absent" push
+ *  operation, so two devices opening the same day's till can't clobber each
+ *  other. Returns false (and leaves the existing doc untouched) if a register
+ *  for that date already exists — the caller should re-load and show that one. */
+export async function openCashRegister(date, { openingCash, openingBank }) {
+  const docRef = doc(db(), "cash_register", date);
+  let opened = true;
+  await runTransaction(db(), async (txn) => {
+    const snap = await txn.get(docRef);
+    if (snap.exists()) { opened = false; return; }
+    txn.set(docRef, {
+      date, openingCash: openingCash || 0, closingCash: 0,
+      openingBank: openingBank || 0, closingBank: 0, closed: false,
+      updatedAt: Date.now(), branchId: branchId()
+    });
+  });
+  return opened;
+}
+
+/** Edits/closes/reopens an already-open register — plain full-snapshot upsert,
+ *  same as Android's enqueueCashRegister() (last-write-wins, the same tradeoff
+ *  Android itself accepts for this one shared-per-day record). */
+export async function updateCashRegister(date, { openingCash, closingCash, openingBank, closingBank, closed }) {
+  await setDoc(doc(db(), "cash_register", date), {
+    date, openingCash: openingCash || 0, closingCash: closingCash || 0,
+    openingBank: openingBank || 0, closingBank: closingBank || 0,
+    closed: !!closed, updatedAt: Date.now(), branchId: branchId()
+  }, { merge: true });
+}
+
+// ---------- Shell Ledger (mirrors ShellLedgerActivity.kt field-for-field —
+// tracks refundable "empty shell" (bottle/crate) deposits customers owe the
+// shop). No delete flow exists on Android for any of these three collections,
+// so no tombstone handling is needed for reads below. `shellsOwed` is a plain
+// field in Android's shellCustomerJson() (NOT excluded the way customer/
+// supplier `balance` is), so Android itself accepts last-write-wins here —
+// matched exactly below with a full-snapshot setDoc rather than increment(). ----------
+export let shellCustomers = [];
+let _shellCustomersUnsub = null;
+
+export function startShellCustomerListener(onChange) {
+  if (_shellCustomersUnsub) _shellCustomersUnsub();
+  const q = query(collection(db(), "shell_customers"), where("branchId", "==", branchId()));
+  _shellCustomersUnsub = onSnapshot(q, (snap) => {
+    shellCustomers = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    onChange && onChange(shellCustomers);
+  });
+}
+
+export function findShellCustomerByName(name) {
+  const n = (name || "").trim().toLowerCase();
+  if (!n) return null;
+  return shellCustomers.find(c => (c.name || "").trim().toLowerCase() === n) || null;
+}
+
+/** Records one Issue/Return transaction against a (possibly brand-new) shell
+ *  customer — mirrors ShellLedgerActivity's save flow exactly: create-or-update
+ *  the customer's shellsOwed (clamped at 0 on Return, same as Android's
+ *  .coerceAtLeast(0)), THEN log the transaction, THEN — only on a Return —
+ *  log a shop_empty_shell_log row (the shop physically got an empty shell
+ *  back), matching Android's order and its "CUSTOMER_RETURN" reason tag. */
+export async function saveShellTransaction({ customerName, phone, isIssue, qty, note }) {
+  const bId = branchId();
+  const name = (customerName || "").trim();
+  if (!name) throw new Error("Customer name required");
+  if (!qty || qty <= 0) throw new Error("Qty must be greater than 0");
+
+  const existing = findShellCustomerByName(name);
+  let customerId;
+  if (!existing) {
+    customerId = ids.shellCustomer();
+    await setDoc(doc(db(), "shell_customers", customerId), {
+      serverId: customerId, name, phone: phone || "", shellsOwed: isIssue ? qty : 0,
+      createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+    });
+  } else {
+    customerId = existing.id;
+    const newOwed = isIssue ? (existing.shellsOwed || 0) + qty : Math.max(0, (existing.shellsOwed || 0) - qty);
+    await setDoc(doc(db(), "shell_customers", customerId), {
+      serverId: customerId, name: existing.name, phone: existing.phone || "",
+      shellsOwed: newOwed, createdAt: existing.createdAt || Date.now(),
+      updatedAt: Date.now(), branchId: bId
+    }, { merge: true });
+  }
+
+  const txId = ids.shellTransaction();
+  await setDoc(doc(db(), "shell_transactions", txId), {
+    serverId: txId, customerServerId: customerId, type: isIssue ? "ISSUE" : "RETURN",
+    qty, note: note || "", createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+
+  if (!isIssue) {
+    await saveShopEmptyShellLog(qty, "CUSTOMER_RETURN", note ? `${name} - ${note}` : name);
+  }
+
+  return txId;
+}
+
+export async function loadShellTransactionsForCustomer(customerId) {
+  const bId = branchId();
+  const snap = await getDocs(query(
+    collection(db(), "shell_transactions"), where("branchId", "==", bId), where("customerServerId", "==", customerId)
+  ));
+  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+// The shop's own running count of empty shells in hand — a plain delta log
+// (sum the deltas to get the current count), same as Android: no separate
+// running-total field exists for this on either side, just the log itself.
+export async function saveShopEmptyShellLog(delta, reason, note) {
+  const bId = branchId();
+  const id = ids.shopEmptyShellLog();
+  await setDoc(doc(db(), "shop_empty_shell_log", id), {
+    serverId: id, delta, reason: reason || "", note: note || "",
+    createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+  });
+  return id;
+}
+
+export async function loadShopEmptyShellLog() {
+  const bId = branchId();
+  const snap = await getDocs(query(collection(db(), "shop_empty_shell_log"), where("branchId", "==", bId)));
+  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }

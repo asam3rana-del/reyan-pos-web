@@ -145,6 +145,10 @@ export const ids = {
   stockAdjustment: () => `stock_adj:${deviceTag()}-${nextSeq()}`,
   zakatYear: () => `zakat_year:${deviceTag()}-${nextSeq()}`,
   zakatPayment: () => `zakat_payment:${deviceTag()}-${nextSeq()}`,
+  stockMovement: () => `stock_movement:${deviceTag()}-${nextSeq()}`,
+  shellCustomer: () => `shell_customer:${deviceTag()}-${nextSeq()}`,
+  shellTransaction: () => `shell_transaction:${deviceTag()}-${nextSeq()}`,
+  shopEmptyShellLog: () => `shop_empty_shell_log:${deviceTag()}-${nextSeq()}`,
   invoice: () => `WEB-${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${nextSeq()}`,
   // Purchase bill number — same role as Android's genBillNo() (PurchaseRepository.kt),
   // just doesn't need to match its exact "PUR-MMMyy-####-DEVICE" format since other
