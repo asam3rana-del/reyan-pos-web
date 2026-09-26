@@ -35,9 +35,11 @@
         <button data-screen="dayBook" class="nav-btn">Day Book</button>
         <button data-screen="stock" class="nav-btn">Stock</button>
         <button data-screen="parties" class="nav-btn">Parties</button>
+        <button data-screen="reminders" class="nav-btn">Due Reminders</button>
         <button data-screen="cash" class="nav-btn">Cash</button>
         <button data-screen="expenses" class="nav-btn">Expenses</button>
         <button data-screen="reports" class="nav-btn">Reports</button>
+        <button data-screen="paymentsReport" class="nav-btn">Payments Report</button>
         <button data-screen="setup" id="navSetupBtn" class="nav-btn nav-btn-muted">⚙ Setup</button>
       </nav>
       <div id="userBadge" class="user-badge hidden">
@@ -313,6 +315,10 @@
           </div>
           <div class="card row-between due-row">
             <span>DUE</span><span id="sumDue">Rs 0.00</span>
+          </div>
+          <div id="saleDueDateCard" class="card hidden">
+            <label>DUE DATE <span class="muted">(reminder ke liye, optional)</span></label>
+            <input id="saleDueDate" type="date" />
           </div>
           <div class="button-row">
             <button id="btnSaveSale" class="btn-primary full-width">SAVE SALE</button>
@@ -615,6 +621,43 @@
     <div id="dayBookList" class="list-box"></div>
   </section>
 
+  <!-- ================= SCREEN: DUE DATE REMINDERS ================= -->
+  <section id="screen-reminders" class="screen hidden">
+    <h1>Due Reminders</h1>
+    <p class="muted">Sale banate waqt "Due Date" dalein to wo credit sale yahan reminder list mein aa jayegi.</p>
+    <div class="party-tabs">
+      <button id="tabRemindersOverdue" class="nav-btn active">Overdue</button>
+      <button id="tabRemindersUpcoming" class="nav-btn">Upcoming</button>
+      <button id="tabRemindersAll" class="nav-btn">All</button>
+    </div>
+    <div id="remindersList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: PAYMENTS REPORT ================= -->
+  <section id="screen-paymentsReport" class="screen hidden">
+    <h1>Payments Report</h1>
+
+    <div class="party-tabs">
+      <button id="prRangeToday" class="nav-btn active" data-range="today">Today</button>
+      <button id="prRangeWeek" class="nav-btn" data-range="week">This Week</button>
+      <button id="prRangeMonth" class="nav-btn" data-range="month">This Month</button>
+      <button id="prRangeAll" class="nav-btn" data-range="all">All Time</button>
+    </div>
+    <div class="party-tabs" style="margin-top:6px;">
+      <button id="prTypeAll" class="nav-btn active" data-ptype="all">All</button>
+      <button id="prTypeCustomer" class="nav-btn" data-ptype="customer">Customers</button>
+      <button id="prTypeSupplier" class="nav-btn" data-ptype="supplier">Suppliers</button>
+    </div>
+
+    <div id="prStats" class="stats-row"></div>
+
+    <h3 class="section-label">PARTY-WISE SUMMARY</h3>
+    <div id="prPartySummary" class="list-box"></div>
+
+    <h3 class="section-label">TRANSACTIONS</h3>
+    <div id="prTransactions" class="list-box"></div>
+  </section>
+
   <!-- ================= SCREEN: STOCK (Report / Adjust / Take) ================= -->
   <section id="screen-stock" class="screen hidden">
     <h1>Stock</h1>
@@ -623,6 +666,7 @@
       <button id="tabStockReport" class="nav-btn active">Report</button>
       <button id="tabStockAdjust" class="nav-btn">Adjust</button>
       <button id="tabStockTake" class="nav-btn">Take</button>
+      <button id="tabStockHistory" class="nav-btn">History</button>
     </div>
 
     <!-- ---- Report tab ---- -->
@@ -684,6 +728,16 @@
         <button id="btnSaveStockTake" class="btn-primary" disabled>SAVE STOCK TAKE</button>
       </div>
       <div id="stockTakeList" class="list-box"></div>
+    </div>
+
+    <!-- ---- History tab: per-product Stock/Cost ledger ---- -->
+    <div id="stockHistoryTab" class="hidden">
+      <label>ITEM</label>
+      <input id="historySearch" type="text" placeholder="Type to search..." autocomplete="off" />
+      <div id="historySuggestions" class="suggestions hidden"></div>
+
+      <h3 class="section-label">LEDGER</h3>
+      <div id="stockHistoryList" class="list-box"></div>
     </div>
   </section>
 
