@@ -185,6 +185,15 @@ function enterApp(session) {
   document.getElementById("navZakatBtn").classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
   // Today's Profit: admin-only stat, matching MainActivity.kt's dashboard (cashier/manager only see Today's Sale).
   document.getElementById("statTodayProfitCard").classList.toggle("hidden", session.role !== "admin");
+  // Dashboard financial-visibility cleanup: cashier only sees Today's Sale, Low
+  // Stock and Shell-Owed (if >0) on the dashboard, same gate as Reports/Zakat —
+  // Register status, Overdue Dues and Recent Activity are admin/manager only.
+  const financialOnly = session.role === "admin" || session.role === "manager";
+  document.getElementById("statRegisterCard").classList.toggle("hidden", !financialOnly);
+  document.getElementById("recentActivitySection").classList.toggle("hidden", !financialOnly);
+  // statOverdueCard itself is left alone here — it starts hidden in the HTML
+  // and dashboard.js only ever fetches/reveals it for admin/manager (passed
+  // in below via initDashboard's `role`), so a cashier session never turns it on.
   // Staff Users card (inside Setup): admin-only, matching UserManagementActivity.kt.
   document.getElementById("setupStaffUsersCard").classList.toggle("hidden", session.role !== "admin");
   document.getElementById("btnLogout").addEventListener("click", () => {
@@ -216,7 +225,7 @@ function enterApp(session) {
   initShellLedgerScreen();
   initExpensesScreen();
   if (session.role === "admin") { initStaffUsersScreen(); initAppSettingsScreen(); }
-  initDashboard({ onQuickSale: () => { showScreen("sale"); focusQuickSale(); } });
+  initDashboard({ onQuickSale: () => { showScreen("sale"); focusQuickSale(); }, role: session.role });
 
   showScreen("dashboard");
 }

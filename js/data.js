@@ -1077,6 +1077,42 @@ export async function loadRecentCashTransactions(limitCount = 50) {
   return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
 }
 
+// ---------- Recent Activity feed (Dashboard, admin/manager only) — a mixed,
+// createdAt-sorted feed of the latest Sales/Purchases/Cash In/Cash Out, each
+// normalized to a generic {type, label, amount, createdAt} shape so the UI
+// can render one uniform list. Same fetch-all-then-sort-and-slice pattern as
+// loadRecentCashTransactions()/loadRecentStockAdjustments() above — fine at
+// this scale, and keeps this read-only feed simple. ----------
+export async function loadRecentActivity(limitCount = 10) {
+  const bId = branchId();
+  const [salesSnap, purchasesSnap, cashSnap] = await Promise.all([
+    getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "cash_transactions"), where("branchId", "==", bId)))
+  ]);
+
+  const events = [];
+  aliveDocs(salesSnap).forEach(d => {
+    const s = d.data();
+    if (s.status !== "active") return;
+    events.push({ type: "sale", label: `Sale #${s.invoice}`, amount: s.total || 0, createdAt: s.createdAt });
+  });
+  aliveDocs(purchasesSnap).forEach(d => {
+    const p = d.data();
+    events.push({ type: "purchase", label: `Purchase #${p.billNo}`, amount: p.total || 0, createdAt: p.createdAt });
+  });
+  aliveDocs(cashSnap).forEach(d => {
+    const c = d.data();
+    events.push({
+      type: c.type === "IN" ? "cashIn" : "cashOut",
+      label: c.reason || (c.type === "IN" ? "Cash In" : "Cash Out"),
+      amount: c.amount || 0, createdAt: c.createdAt
+    });
+  });
+
+  return events.sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
+}
+
 // ---------- Expenses (mirrors ExpenseActivity.kt — a separate `expenses`
 // collection from cash_transactions above; this is what Reports' P&L
 // "Total Expenses"/loadPnL() and Balance Sheet's Net Profit actually read) ----------

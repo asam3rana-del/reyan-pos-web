@@ -27,6 +27,13 @@ export function initRemindersScreen() {
   el("tabRemindersAll").addEventListener("click", () => switchFilter("all"));
 }
 
+// Called from dashboard.js's Overdue Dues card so tapping it always lands on
+// the Overdue tab, even if the Reminders screen was last left on a different
+// one — small enough to not warrant importing the whole switchFilter().
+export function selectOverdueTab() {
+  switchFilter("overdue");
+}
+
 function switchFilter(f) {
   currentFilter = f;
   el("tabRemindersOverdue").classList.toggle("active", f === "overdue");
