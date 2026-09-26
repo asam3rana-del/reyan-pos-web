@@ -2,6 +2,7 @@ import { products, suppliers, savePurchase, updatePurchaseBill } from "./data.js
 import { unitNames, toSmallestUnits } from "./firebase-init.js";
 import { showToast } from "./ui.js";
 import { printPurchaseReceipt } from "./print.js";
+import { holdBill, showRecallModal, heldCount } from "./heldBills.js";
 
 let cart = [];       // [{barcode, product, qty, unit, unitCost, amount, conversionFactor}]
 let selectedProduct = null;
@@ -176,6 +177,45 @@ export function enterPurchaseEditMode(purchase, supplierName) {
   el("btnSavePurchase").textContent = "UPDATE PURCHASE";
 }
 
+function updateHeldBadge() {
+  const badge = el("heldPurchaseCount");
+  if (badge) badge.textContent = heldCount("purchase");
+}
+
+// Captures everything needed to fully rebuild this screen later — used by
+// Hold Bill. Deliberately drops any in-progress edit-mode link (editingBillNo)
+// — a held purchase always recalls as a fresh draft, not a resumed edit.
+function captureState() {
+  const totals = recalcTotals();
+  return {
+    cart: cart.map(l => ({ ...l })),
+    supplierName: el("purchaseSupplier").value,
+    date: el("purchaseDate").value,
+    discount: totals.discount,
+    paid: totals.paid,
+    paymentMethod: el("purchasePaymentMethod").value,
+    total: totals.total
+  };
+}
+
+function applyHeldState(state) {
+  exitEditMode();
+  cart = (state.cart || []).map(l => ({ ...l }));
+  selectedProduct = null;
+  el("purchaseItemSearch").value = "";
+  el("purchaseItemQty").value = 0;
+  el("purchaseItemRate").value = "";
+  el("purchaseItemUnit").innerHTML = "";
+  el("purchaseSupplier").value = state.supplierName || "";
+  el("purchaseDate").value = state.date || todayDateStr();
+  el("purchaseDiscount").value = state.discount || 0;
+  el("purchasePaid").value = state.paid || 0;
+  el("purchasePaymentMethod").value = state.paymentMethod || "Cash";
+  renderCart();
+  recalcTotals();
+  recalcLineAmount();
+}
+
 export function initPurchaseScreen() {
   renderSupplierList();
   el("purchaseDate").value = todayDateStr();
@@ -274,6 +314,25 @@ export function initPurchaseScreen() {
     printPurchaseReceipt(lastSavedPurchase.receipt, lastSavedPurchase.supplierName);
   });
 
+  el("btnHoldPurchase")?.addEventListener("click", () => {
+    if (!cart.length) { showToast("Purchase khali hai — hold karne ke liye pehle item add karein"); return; }
+    const state = captureState();
+    const label = `${state.supplierName || "No supplier"} — ${cart.length} item(s)`;
+    holdBill("purchase", label, state);
+    updateHeldBadge();
+    showToast("Purchase hold ho gayi");
+    resetForm();
+  });
+
+  el("btnRecallPurchase")?.addEventListener("click", () => {
+    showRecallModal("purchase", "Held Purchases", (state) => {
+      applyHeldState(state);
+      updateHeldBadge();
+      showToast("Purchase recall ho gayi");
+    });
+  });
+
+  updateHeldBadge();
   resetForm();
 }
 

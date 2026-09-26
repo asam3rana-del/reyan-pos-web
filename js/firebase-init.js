@@ -146,6 +146,7 @@ export const ids = {
   zakatYear: () => `zakat_year:${deviceTag()}-${nextSeq()}`,
   zakatPayment: () => `zakat_payment:${deviceTag()}-${nextSeq()}`,
   stockMovement: () => `stock_movement:${deviceTag()}-${nextSeq()}`,
+  auditLog: () => `audit_log:${deviceTag()}-${nextSeq()}`,
   shellCustomer: () => `shell_customer:${deviceTag()}-${nextSeq()}`,
   shellTransaction: () => `shell_transaction:${deviceTag()}-${nextSeq()}`,
   shopEmptyShellLog: () => `shop_empty_shell_log:${deviceTag()}-${nextSeq()}`,

@@ -2,6 +2,7 @@ import { products, customers, saveSale } from "./data.js";
 import { unitNames, toSmallestUnits } from "./firebase-init.js";
 import { showToast } from "./ui.js";
 import { printSaleReceipt } from "./print.js";
+import { holdBill, showRecallModal, heldCount } from "./heldBills.js";
 
 let cart = [];       // [{barcode, product, qty, unit, unitPrice, cost, amount, conversionFactor}]
 let selectedProduct = null;
@@ -114,6 +115,45 @@ function resetForm() {
   recalcLineAmount();
 }
 
+function updateHeldBadge() {
+  const badge = el("heldSaleCount");
+  if (badge) badge.textContent = heldCount("sale");
+}
+
+// Captures everything needed to fully rebuild this screen later — used by
+// Hold Bill; the inverse of this is applyHeldState() below.
+function captureState() {
+  const totals = recalcTotals();
+  return {
+    cart: cart.map(l => ({ ...l })),
+    customerName: el("saleCustomer").value,
+    saleType: el("saleType").value,
+    discount: totals.discount,
+    paid: totals.paid,
+    paymentMethod: el("paymentMethod").value,
+    dueDate: el("saleDueDate").value,
+    total: totals.total
+  };
+}
+
+function applyHeldState(state) {
+  cart = (state.cart || []).map(l => ({ ...l }));
+  selectedProduct = null;
+  el("itemSearch").value = "";
+  el("itemQty").value = 0;
+  el("itemRate").value = "";
+  el("itemUnit").innerHTML = "";
+  el("saleCustomer").value = state.customerName || "cash";
+  el("saleType").value = state.saleType || "retail";
+  el("saleDiscount").value = state.discount || 0;
+  el("salePaid").value = state.paid || 0;
+  el("paymentMethod").value = state.paymentMethod || "Cash";
+  el("saleDueDate").value = state.dueDate || "";
+  renderCart();
+  recalcTotals();
+  recalcLineAmount();
+}
+
 export function initSaleScreen() {
   renderCustomerList();
 
@@ -215,6 +255,25 @@ export function initSaleScreen() {
     printSaleReceipt(lastSavedSale.receipt, lastSavedSale.customerName);
   });
 
+  el("btnHoldSale")?.addEventListener("click", () => {
+    if (!cart.length) { showToast("Cart khali hai — hold karne ke liye pehle item add karein"); return; }
+    const state = captureState();
+    const label = `${state.customerName === "cash" ? "Cash" : state.customerName} — ${cart.length} item(s)`;
+    holdBill("sale", label, state);
+    updateHeldBadge();
+    showToast("Sale hold ho gayi");
+    resetForm();
+  });
+
+  el("btnRecallSale")?.addEventListener("click", () => {
+    showRecallModal("sale", "Held Sales", (state) => {
+      applyHeldState(state);
+      updateHeldBadge();
+      showToast("Sale recall ho gayi");
+    });
+  });
+
+  updateHeldBadge();
   resetForm();
 }
 

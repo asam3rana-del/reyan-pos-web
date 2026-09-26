@@ -8,10 +8,11 @@
 
 import {
   db, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, where,
-  orderBy, onSnapshot, runTransaction, increment, branchId, ids,
+  orderBy, onSnapshot, runTransaction, increment, branchId, ids, deviceTag,
   toSmallestUnits, unitNames, smallestUnitFactor
 } from "./firebase-init.js";
 // (smallestUnitFactor already imported above — used by loadBalanceSheet())
+import { getSession } from "./auth.js";
 
 // ---------- Tombstone delete (mirrors SyncApi.kt's push() "delete" branch,
 // field-for-field) — used for every collection the Android app two-way-syncs
@@ -97,6 +98,41 @@ async function logStockMovement(barcode, type, signedQty, reference, unitCost, n
   } catch (e) {
     console.warn("Stock movement log failed for", barcode, e);
   }
+}
+
+// ---------- Audit Log (new `audit_log` collection — COMBINED across every
+// device/branch-member, unlike Held Bills which are deliberately kept
+// per-device/localStorage-only, see heldBills.js). Every screen below that
+// creates/edits/deletes a sale, purchase, payment, party, expense, or stock
+// adjustment calls this right after its own write, same "never block the
+// real action on a log failure" rule logStockMovement() above follows.
+// `action` is a short caps tag (SALE, SALE_DELETE, SALE_RETURN, PURCHASE,
+// PURCHASE_EDIT, PURCHASE_DELETE, PAYMENT, PARTY_CREATE, PARTY_EDIT,
+// PARTY_DELETE, EXPENSE, EXPENSE_DELETE, STOCK_ADJUST). `summary` is a
+// ready-to-display one-line description; `meta` is a small extra-detail
+// object (invoice/billNo/amount/etc) kept for possible future filtering. ----------
+export async function logAudit(action, summary, meta = {}) {
+  const bId = branchId();
+  const session = getSession();
+  const id = ids.auditLog();
+  try {
+    await setDoc(doc(db(), "audit_log", id), {
+      serverId: id, action, summary,
+      meta,
+      user: session ? (session.displayName || session.username || "") : "",
+      username: session ? (session.username || "") : "",
+      device: deviceTag(),
+      createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
+    });
+  } catch (e) {
+    console.warn("Audit log failed for", action, e);
+  }
+}
+
+export async function loadAuditLog(limitCount = 100) {
+  const bId = branchId();
+  const snap = await getDocs(query(collection(db(), "audit_log"), where("branchId", "==", bId)));
+  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
 }
 
 export async function loadStockMovementsForBarcode(barcode, limitCount = 200) {
@@ -282,6 +318,7 @@ export async function saveCustomer({ id, name, phone, creditLimit, openingBalanc
       name, phone: phone || "", creditLimit: creditLimit || 0, openingBalance: openingBalance || 0,
       updatedAt: Date.now()
     });
+    logAudit("PARTY_EDIT", `Customer "${name}" updated`, { partyId: id, partyType: "customer" });
     return id;
   }
   const newId = ids.customer();
@@ -291,6 +328,7 @@ export async function saveCustomer({ id, name, phone, creditLimit, openingBalanc
     balance: openingBalance || 0,
     updatedAt: Date.now(), branchId: bId
   });
+  logAudit("PARTY_CREATE", `New customer "${name}" added`, { partyId: newId, partyType: "customer" });
   return newId;
 }
 
@@ -301,6 +339,7 @@ export async function saveSupplier({ id, name, phone, openingBalance }) {
       name, phone: phone || "", openingBalance: openingBalance || 0,
       updatedAt: Date.now()
     });
+    logAudit("PARTY_EDIT", `Supplier "${name}" updated`, { partyId: id, partyType: "supplier" });
     return id;
   }
   const newId = ids.supplier();
@@ -309,15 +348,20 @@ export async function saveSupplier({ id, name, phone, openingBalance }) {
     openingBalance: openingBalance || 0, balance: openingBalance || 0,
     updatedAt: Date.now(), branchId: bId
   });
+  logAudit("PARTY_CREATE", `New supplier "${name}" added`, { partyId: newId, partyType: "supplier" });
   return newId;
 }
 
 export async function deleteCustomer(id) {
+  const c = customers.find(x => x.id === id);
   await tombstoneDelete("customers", id);
+  logAudit("PARTY_DELETE", `Customer "${c ? c.name : id}" deleted`, { partyId: id, partyType: "customer" });
 }
 
 export async function deleteSupplier(id) {
+  const s = suppliers.find(x => x.id === id);
   await tombstoneDelete("suppliers", id);
+  logAudit("PARTY_DELETE", `Supplier "${s ? s.name : id}" deleted`, { partyId: id, partyType: "supplier" });
 }
 
 // ---------- Party transaction history + Payments (mirrors PartyTransactionActivity.kt —
@@ -378,6 +422,7 @@ export async function savePartyPayment({ partyId, partyType, partyName, amount, 
     createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
   });
 
+  logAudit("PAYMENT", `${partyType === "customer" ? "Received from" : "Paid to"} ${partyName} — Rs ${amount}`, { partyId, partyType, amount });
   return id;
 }
 
@@ -562,6 +607,7 @@ export async function saveSale({ lines, customerName, saleType, subtotal, discou
     }
   }
 
+  logAudit("SALE", `Sale invoice ${invoice} — ${customerName || "Cash"} — Rs ${total}`, { invoice, total, customerName: customerName || "Cash" });
   return invoice;
 }
 
@@ -643,6 +689,7 @@ export async function deleteSaleBill(invoice) {
   if (!sale) throw new Error("Sale not found");
   await reverseSaleEffects(sale);
   await tombstoneDelete("sales", ids.sale(invoice));
+  logAudit("SALE_DELETE", `Sale invoice ${invoice} deleted — Rs ${sale.total}`, { invoice, total: sale.total });
 }
 
 // Returns a sale — same reversal as delete, but the sale record is KEPT with
@@ -671,6 +718,7 @@ export async function returnSaleBill(invoice) {
   }
 
   await updateDoc(doc(db(), "sales", ids.sale(invoice)), { status: "returned", updatedAt: Date.now() });
+  logAudit("SALE_RETURN", `Sale invoice ${invoice} returned — Rs ${sale.total}`, { invoice, total: sale.total });
 }
 
 // ---------- Save a purchase (mirrors PurchaseRepository.savePurchase() +
@@ -781,6 +829,7 @@ export async function savePurchase({ lines, supplierName, discount, paid, paymen
     }
   }
 
+  logAudit("PURCHASE", `Purchase bill ${billNo} — ${supplierName || "Unnamed"} — Rs ${total}`, { billNo, total, supplierName: supplierName || "" });
   return billNo;
 }
 
@@ -868,6 +917,7 @@ export async function deletePurchaseBill(billNo) {
   if (!purchase) throw new Error("Purchase not found");
   await reversePurchaseEffects(purchase);
   await tombstoneDelete("purchases", ids.purchase(billNo));
+  logAudit("PURCHASE_DELETE", `Purchase bill ${billNo} deleted — Rs ${purchase.total}`, { billNo, total: purchase.total });
 }
 
 // Edits an existing bill in place (same billNo). `original` is the raw
@@ -980,6 +1030,7 @@ export async function updatePurchaseBill(billNo, { lines, supplierName, discount
     }
   }
 
+  logAudit("PURCHASE_EDIT", `Purchase bill ${billNo} updated — ${supplierName || "Unnamed"} — Rs ${total}`, { billNo, total, supplierName: supplierName || "" });
   return billNo;
 }
 
@@ -1124,11 +1175,13 @@ export async function saveExpense({ category, description, amount }) {
     serverId: id, category, description: description || "", amount,
     createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
   });
+  logAudit("EXPENSE", `Expense — ${category} — Rs ${amount}`, { serverId: id, category, amount });
   return id;
 }
 
 export async function deleteExpense(serverId) {
   await tombstoneDelete("expenses", serverId);
+  logAudit("EXPENSE_DELETE", `Expense deleted`, { serverId });
 }
 
 export async function loadExpenseTotals() {
@@ -1182,6 +1235,12 @@ export async function saveStockAdjustment({ barcode, product, deltaSmallest, qty
     ? "AUDIT_RECONCILE"
     : (/damage/i.test(reason || "") ? "DAMAGE" : "ADJUSTMENT");
   await logStockMovement(barcode, movementType, deltaSmallest, "", null, note || reason || "");
+  if (type !== "stocktake") {
+    // A stock take logs one row per changed product — logging each one here
+    // too would flood the audit log, so saveStockTake() below logs a single
+    // combined entry for the whole batch instead.
+    logAudit("STOCK_ADJUST", `Stock adjusted — ${product} — ${deltaSmallest > 0 ? "+" : ""}${deltaSmallest} (${reason || "Adjustment"})`, { barcode, deltaSmallest, reason: reason || "" });
+  }
   return id;
 }
 
@@ -1193,6 +1252,9 @@ export async function saveStockTake(entries) {
       barcode: e.barcode, product: e.product, deltaSmallest: e.deltaSmallest,
       qtyEntered: e.countedSmallest, unit: "", reason: "Stock Take", note: "", type: "stocktake"
     });
+  }
+  if (entries.length) {
+    logAudit("STOCK_ADJUST", `Stock Take — ${entries.length} product(s) recounted`, { count: entries.length });
   }
 }
 

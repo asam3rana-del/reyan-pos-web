@@ -26,6 +26,7 @@ import { initStaffUsersScreen, renderStaffUsersList } from "./users.js";
 import { initRemindersScreen, renderReminders } from "./reminders.js";
 import { initPaymentsReportScreen, renderPaymentsReport } from "./paymentsReport.js";
 import { initZakatScreen, renderZakatScreen } from "./zakat.js";
+import { initAuditLogScreen, renderAuditLog } from "./auditLog.js";
 import { showToast } from "./ui.js";
 
 // ---------- Role-based screen access (mirrors the Android app's Phase 4
@@ -41,6 +42,7 @@ const SCREEN_ACCESS = {
   reports: ["admin", "manager"],// ReportsActivity.kt/BalanceSheetActivity.kt
   paymentsReport: ["admin", "manager"], // PaymentsReportActivity.kt — same financial-visibility gate as Reports
   zakat: ["admin", "manager"],  // ZakatActivity.kt — same financial-visibility gate as Reports
+  auditLog: ["admin", "manager"], // combined cross-device activity trail — same financial-visibility gate as Reports
   setup: ["admin"]              // Firebase project/branch + shop info
 };
 
@@ -89,6 +91,7 @@ export function showScreen(name) {
   if (name === "reminders") renderReminders();
   if (name === "paymentsReport") renderPaymentsReport();
   if (name === "zakat") renderZakatScreen();
+  if (name === "auditLog") renderAuditLog();
   if (name === "reports") {
     // Refresh whichever sub-tab (P&L / Balance Sheet) is currently active.
     const bsActive = document.getElementById("tabBalanceSheet")?.classList.contains("active");
@@ -131,6 +134,7 @@ async function boot() {
   initRemindersScreen();
   initPaymentsReportScreen();
   initZakatScreen();
+  initAuditLogScreen();
   wireShopInfoOnlySave();
 
   if (!isConfigured()) {
@@ -183,6 +187,8 @@ function enterApp(session) {
   document.querySelector('#mainNav .nav-btn[data-screen="reports"]').classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
   // Zakat: admin or manager, matching ZakatActivity.kt's own role check.
   document.getElementById("navZakatBtn").classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
+  // Audit Log: admin or manager, same financial-visibility gate as Reports/Zakat.
+  document.getElementById("navAuditLogBtn").classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
   // Today's Profit: admin-only stat, matching MainActivity.kt's dashboard (cashier/manager only see Today's Sale).
   document.getElementById("statTodayProfitCard").classList.toggle("hidden", session.role !== "admin");
   // Dashboard financial-visibility cleanup: cashier only sees Today's Sale, Low
