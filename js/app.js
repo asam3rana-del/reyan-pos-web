@@ -14,6 +14,7 @@ import { initPurchaseScreen, refreshPurchaseSupplierList, enterPurchaseEditMode 
 import { initPurchaseHistoryScreen, renderPurchaseHistory } from "./purchaseHistory.js";
 import { initProductsScreen, refreshProductsScreen } from "./products.js";
 import { initPartiesScreen, refreshPartiesList } from "./parties.js";
+import { initPartyReportsScreen, renderPartyReportsList } from "./partyReports.js";
 import { initReportsScreens, renderDayBook, renderPnl, renderBalanceSheet } from "./reports.js";
 import { initStockScreens, renderStockScreen } from "./stock.js";
 import { initCashScreen, refreshCashScreen } from "./cash.js";
@@ -55,7 +56,7 @@ function roleAccessMessage(screenName) {
     : "Sirf Admin/Manager is screen ko access kar sakte hain";
 }
 
-function showScreen(name) {
+export function showScreen(name) {
   if (!roleAllowed(name)) {
     showToast(roleAccessMessage(name));
     return;
@@ -77,6 +78,7 @@ function showScreen(name) {
   if (name === "products") refreshProductsScreen();
   if (name === "stock") renderStockScreen();
   if (name === "parties") refreshPartiesList();
+  if (name === "partyReports") renderPartyReportsList();
   if (name === "cash") refreshCashScreen();
   if (name === "expenses") refreshExpensesScreen();
   if (name === "reminders") renderReminders();
@@ -203,6 +205,7 @@ function enterApp(session) {
   });
   initProductsScreen();
   initPartiesScreen();
+  initPartyReportsScreen();
   initCashScreen();
   initExpensesScreen();
   if (session.role === "admin") initStaffUsersScreen();

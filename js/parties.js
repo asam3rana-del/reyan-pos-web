@@ -292,6 +292,17 @@ export function initPartiesScreen() {
   switchType("customer");
 }
 
+// Used by Party Dashboard: jump straight to a party's detail view (as if the
+// user had switched tabs + clicked "View" themselves) after showScreen("parties").
+export function openPartyById(id, isCustomer) {
+  activeType = isCustomer ? "customer" : "supplier";
+  el("tabCustomers").classList.toggle("active", activeType === "customer");
+  el("tabSuppliers").classList.toggle("active", activeType === "supplier");
+  el("creditLimitField").classList.toggle("hidden", activeType !== "customer");
+  const p = currentList().find(x => x.id === id);
+  if (p) openPartyDetail(p);
+}
+
 export function refreshPartiesList() {
   if (viewingParty) {
     const fresh = currentList().find(x => x.id === viewingParty.id);
