@@ -240,6 +240,10 @@
         <div class="stat-label">Today's Profit</div>
         <div class="stat-value" id="statTodayProfit">Rs 0.00</div>
       </div>
+      <div class="stat-card" id="statRegisterCard" data-screen="cashRegister" style="cursor:pointer;">
+        <div class="stat-label" id="statRegisterLabel">Till / Register</div>
+        <div class="stat-value" id="statRegisterValue">—</div>
+      </div>
     </div>
 
     <h3 class="section-label">QUICK ACTIONS</h3>
@@ -259,10 +263,11 @@
         <div class="quick-title">Day Book</div>
         <div class="quick-sub">View daily ledger</div>
       </button>
-      <button class="quick-card quick-red" data-screen="stock">
+      <button class="quick-card quick-red" data-screen="stock" style="position:relative;">
+        <span id="lowStockBadge" class="quick-badge hidden">0</span>
         <div class="quick-icon">⚠</div>
         <div class="quick-title">Low Stock</div>
-        <div class="quick-sub">Items needing restock</div>
+        <div class="quick-sub" id="lowStockSub">Items needing restock</div>
       </button>
       <button class="quick-card quick-blue" data-screen="cashRegister">
         <div class="quick-icon">🗄</div>
@@ -272,7 +277,7 @@
       <button class="quick-card quick-amber" data-screen="shellLedger">
         <div class="quick-icon">🧴</div>
         <div class="quick-title">Shell Ledger</div>
-        <div class="quick-sub">Empty bottle/crate deposits</div>
+        <div class="quick-sub" id="shellLedgerSub">Empty bottle/crate deposits</div>
       </button>
     </div>
 
@@ -286,6 +291,19 @@
         <div class="stat-label">You'll give</div>
         <div class="stat-value" id="statYoullGive">Rs 0.00</div>
       </div>
+      <div class="stat-card" id="statShellOwedCard" style="cursor:pointer;" data-screen="shellLedger">
+        <div class="stat-label">Shells Owed</div>
+        <div class="stat-value" id="statShellOwed">0</div>
+      </div>
+      <div class="stat-card stat-red hidden" id="statOverdueCard" data-screen="reminders" style="cursor:pointer;">
+        <div class="stat-label">Overdue Dues</div>
+        <div class="stat-value" id="statOverdue">0</div>
+      </div>
+    </div>
+
+    <div id="recentActivitySection">
+      <h3 class="section-label">RECENT ACTIVITY</h3>
+      <div id="recentActivityList" class="list-box"></div>
     </div>
   </section>
 
