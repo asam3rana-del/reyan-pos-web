@@ -1180,11 +1180,12 @@ export async function loadRecentStockAdjustments(limitCount = 30) {
 // too — same as Android has no record of a deleted bill either. ----------
 export async function loadStockHistoryForProduct(barcode, limitCount = 200) {
   const bId = branchId();
-  const [purchasesSnap, salesSnap, returnsSnap, adjustSnap] = await Promise.all([
+  const [purchasesSnap, salesSnap, returnsSnap, adjustSnap, movements] = await Promise.all([
     getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
     getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
     getDocs(query(collection(db(), "returns"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "stock_adjustments"), where("branchId", "==", bId)))
+    getDocs(query(collection(db(), "stock_adjustments"), where("branchId", "==", bId))),
+    loadStockMovementsForBarcode(barcode)
   ]);
 
   const product = products.find(p => p.barcode === barcode) || null;
@@ -1253,6 +1254,38 @@ export async function loadStockHistoryForProduct(barcode, limitCount = 200) {
       reference: a.reason || "", note: a.note || ""
     });
   });
+
+  // ---- Merge in Android-only movements from the real `stock_movements`
+  // ledger. "SALE"/"SALE_REVERSAL"/"PURCHASE"/"PURCHASE_EDIT" are skipped —
+  // those are already derived above from the shared purchases/sales/returns
+  // collections (both apps write to the same rows there), so including them
+  // again from stock_movements would double them up. Only the remaining
+  // types (OPENING_STOCK/DAMAGE/ADJUSTMENT/AUDIT_RECONCILE) can originate
+  // from a device where this ledger is the *only* record — Android's own
+  // Stock Adjustment/Take screens never write to web's `stock_adjustments`
+  // collection. When THIS web app made the adjustment, saveStockAdjustment()
+  // writes both collections back-to-back in the same call, so we drop any
+  // movement that has a matching stock_adjustments row (same barcode +
+  // deltaSmallest, created within 5s) to avoid showing it twice.
+  const movementTypeLabels = {
+    OPENING_STOCK: "Opening Stock", DAMAGE: "Damage",
+    ADJUSTMENT: "Adjustment", AUDIT_RECONCILE: "Stock Take"
+  };
+  const adjustRows = adjustSnap.docs.map(d => d.data());
+  movements
+    .filter(m => movementTypeLabels[m.type])
+    .filter(m => !adjustRows.some(a =>
+      a.barcode === barcode && a.deltaSmallest === m.qty && Math.abs(a.createdAt - m.createdAt) < 5000))
+    .forEach(m => {
+      events.push({
+        createdAt: m.createdAt,
+        type: movementTypeLabels[m.type],
+        direction: m.qty >= 0 ? "in" : "out",
+        qty: Math.abs(m.qty), unit: m.unit || "", rate: m.cost || 0,
+        deltaSmallest: m.qty,
+        reference: m.reference || "", note: m.note || ""
+      });
+    });
 
   events.sort((a, b) => b.createdAt - a.createdAt);
 

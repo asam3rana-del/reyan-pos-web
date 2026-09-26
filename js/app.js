@@ -18,6 +18,9 @@ import { initPartyReportsScreen, renderPartyReportsList } from "./partyReports.j
 import { initReportsScreens, renderDayBook, renderPnl, renderBalanceSheet } from "./reports.js";
 import { initStockScreens, renderStockScreen } from "./stock.js";
 import { initCashScreen, refreshCashScreen } from "./cash.js";
+import { initCashRegisterScreen, refreshCashRegisterScreen } from "./cashRegister.js";
+import { initShellLedgerScreen, refreshShellLedgerScreen } from "./shellLedger.js";
+import { initAppSettingsScreen } from "./appSettings.js";
 import { initExpensesScreen, refreshExpensesScreen } from "./expenses.js";
 import { initStaffUsersScreen, renderStaffUsersList } from "./users.js";
 import { initRemindersScreen, renderReminders } from "./reminders.js";
@@ -80,6 +83,8 @@ export function showScreen(name) {
   if (name === "parties") refreshPartiesList();
   if (name === "partyReports") renderPartyReportsList();
   if (name === "cash") refreshCashScreen();
+  if (name === "cashRegister") refreshCashRegisterScreen();
+  if (name === "shellLedger") refreshShellLedgerScreen();
   if (name === "expenses") refreshExpensesScreen();
   if (name === "reminders") renderReminders();
   if (name === "paymentsReport") renderPaymentsReport();
@@ -207,8 +212,10 @@ function enterApp(session) {
   initPartiesScreen();
   initPartyReportsScreen();
   initCashScreen();
+  initCashRegisterScreen();
+  initShellLedgerScreen();
   initExpensesScreen();
-  if (session.role === "admin") initStaffUsersScreen();
+  if (session.role === "admin") { initStaffUsersScreen(); initAppSettingsScreen(); }
   initDashboard({ onQuickSale: () => { showScreen("sale"); focusQuickSale(); } });
 
   showScreen("dashboard");
