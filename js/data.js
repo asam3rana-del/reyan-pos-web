@@ -7,7 +7,7 @@
 // ================================================================
 
 import {
-  db, collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, query, where,
+  db, collection, doc, setDoc, updateDoc, getDoc, getDocs, query, where,
   orderBy, onSnapshot, runTransaction, increment, branchId, ids,
   toSmallestUnits, unitNames, smallestUnitFactor
 } from "./firebase-init.js";
@@ -26,11 +26,23 @@ import {
 // deletes. Same conflict guard as the Kotlin version too: inside a
 // transaction, only write the tombstone if this delete is at least as new
 // as whatever's on the server, so an offline delete can never clobber a
-// newer edit that already reached the cloud. Categories/units are NOT
-// covered by this — Android has no Firestore collection for them at all
-// (ItemsActivity.kt's Categories/Units tabs are local-only Room data), so
-// those two stay plain deleteDoc() below; they were never two-way-synced
-// with the Android app to begin with. */
+// newer edit that already reached the cloud.
+//
+// FIX (categories/units delete never reached Android): this comment used to
+// say Categories/Units were local-only on Android and left deleteCategory()/
+// deleteUnit() below as plain deleteDoc() calls. That was wrong — ItemsActivity.kt's
+// confirmDeleteCategory() (and its Units-tab equivalent) DOES call
+// SyncQueueHelper.enqueueDelete(), which SyncApi.kt's push() turns into the exact
+// same timestamped `_deleted: true` tombstone as every other collection, and
+// SyncApi.kt's pull()/applyServerChanges() explicitly checks
+// `row["_deleted"] == true` for both "units" and "categories" to delete them
+// locally. A plain deleteDoc() here removes the Firestore doc outright, so
+// Android's pull() — which only asks for docs with `updatedAt` greater than its
+// last checkpoint — never sees it vanish and never deletes it locally; the
+// category/unit silently keeps existing on every Android device. Categories/units
+// now go through tombstoneDelete() too, same as everything else below.
+// (zakat_years/zakat_payments/cash_register genuinely have no delete flow on
+// either side, so those three are the only ones that still don't need this.) */
 async function tombstoneDelete(collectionName, id) {
   const docRef = doc(db(), collectionName, id);
   const deleteAt = Date.now();
@@ -46,10 +58,11 @@ async function tombstoneDelete(collectionName, id) {
 // A tombstoneDelete() above leaves the document in place (with `_deleted: true`)
 // so Android's pull() can see it was removed — every read of a tombstone-capable
 // collection (products, customers, suppliers, users, sales, purchases, payments,
-// expenses, cash_transactions) must filter these out itself, the same way
-// Android's applyServerChanges() checks `row["_deleted"] == true` before using a
-// pulled row. Categories/units/zakat collections never get tombstoned (see the
-// comment above tombstoneDelete), so their reads don't need this.
+// expenses, cash_transactions, categories, units) must filter these out itself,
+// the same way Android's applyServerChanges() checks `row["_deleted"] == true`
+// before using a pulled row. zakat_years/zakat_payments/cash_register never get
+// tombstoned (no delete flow exists for them on either side), so their reads
+// don't need this.
 function aliveDocs(snap) {
   return snap.docs.filter(d => d.data()._deleted !== true);
 }
@@ -83,7 +96,7 @@ export function startCategoryListener(onChange) {
   if (_categoriesUnsub) _categoriesUnsub();
   const q = query(collection(db(), "categories"), where("branchId", "==", branchId()));
   _categoriesUnsub = onSnapshot(q, (snap) => {
-    categories = snap.docs.map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
+    categories = aliveDocs(snap).map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
     onChange && onChange(categories);
   });
 }
@@ -92,7 +105,7 @@ export function startUnitListener(onChange) {
   if (_unitsUnsub) _unitsUnsub();
   const q = query(collection(db(), "units"), where("branchId", "==", branchId()));
   _unitsUnsub = onSnapshot(q, (snap) => {
-    units = snap.docs.map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
+    units = aliveDocs(snap).map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
     onChange && onChange(units);
   });
 }
@@ -105,7 +118,7 @@ export async function saveCategory(name) {
 }
 
 export async function deleteCategory(name) {
-  await deleteDoc(doc(db(), "categories", name));
+  await tombstoneDelete("categories", name);
 }
 
 export async function saveUnit(name) {
@@ -116,7 +129,7 @@ export async function saveUnit(name) {
 }
 
 export async function deleteUnit(name) {
-  await deleteDoc(doc(db(), "units", name));
+  await tombstoneDelete("units", name);
 }
 
 export function startCustomerListener(onChange) {
