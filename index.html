@@ -43,6 +43,7 @@
         <button data-screen="expenses" class="nav-btn">Expenses</button>
         <button data-screen="reports" class="nav-btn">Reports</button>
         <button data-screen="paymentsReport" class="nav-btn">Payments Report</button>
+        <button data-screen="auditLog" id="navAuditLogBtn" class="nav-btn">Audit Log</button>
         <button data-screen="zakat" id="navZakatBtn" class="nav-btn">Zakat</button>
         <button data-screen="setup" id="navSetupBtn" class="nav-btn nav-btn-muted">⚙ Setup</button>
       </nav>
@@ -395,6 +396,10 @@
             <button id="btnSaveSale" class="btn-primary full-width">SAVE SALE</button>
             <button id="btnClearSale" class="btn-secondary">CLEAR</button>
           </div>
+          <div class="button-row">
+            <button id="btnHoldSale" class="btn-secondary full-width">⏸ HOLD BILL</button>
+            <button id="btnRecallSale" class="btn-secondary full-width">▶ RECALL (<span id="heldSaleCount">0</span>)</button>
+          </div>
           <button id="btnPrintLastSale" class="btn-print full-width hidden">🖨 PRINT LAST RECEIPT</button>
         </div>
       </div>
@@ -485,6 +490,10 @@
           <div class="button-row">
             <button id="btnSavePurchase" class="btn-primary full-width">SAVE PURCHASE</button>
             <button id="btnClearPurchase" class="btn-secondary">CLEAR</button>
+          </div>
+          <div class="button-row">
+            <button id="btnHoldPurchase" class="btn-secondary full-width">⏸ HOLD BILL</button>
+            <button id="btnRecallPurchase" class="btn-secondary full-width">▶ RECALL (<span id="heldPurchaseCount">0</span>)</button>
           </div>
           <button id="btnPrintLastPurchase" class="btn-print full-width hidden">🖨 PRINT LAST BILL</button>
         </div>
@@ -738,6 +747,34 @@
 
     <h3 class="section-label">TRANSACTIONS</h3>
     <div id="prTransactions" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: AUDIT LOG (combined activity trail, all devices/branch) ================= -->
+  <section id="screen-auditLog" class="screen hidden">
+    <h1>Audit Log</h1>
+    <div class="field-row">
+      <div class="field">
+        <label>ACTION TYPE</label>
+        <select id="auditActionFilter">
+          <option value="all">All Activity</option>
+          <option value="SALE">Sale</option>
+          <option value="SALE_DELETE">Sale Deleted</option>
+          <option value="SALE_RETURN">Sale Returned</option>
+          <option value="PURCHASE">Purchase</option>
+          <option value="PURCHASE_EDIT">Purchase Edited</option>
+          <option value="PURCHASE_DELETE">Purchase Deleted</option>
+          <option value="PAYMENT">Payment</option>
+          <option value="PARTY_CREATE">Party Added</option>
+          <option value="PARTY_EDIT">Party Edited</option>
+          <option value="PARTY_DELETE">Party Deleted</option>
+          <option value="EXPENSE">Expense</option>
+          <option value="EXPENSE_DELETE">Expense Deleted</option>
+          <option value="STOCK_ADJUST">Stock Adjust</option>
+        </select>
+      </div>
+    </div>
+    <button id="btnRefreshAuditLog" class="btn-secondary">↻ REFRESH</button>
+    <div id="auditLogList" class="list-box" style="margin-top:10px;"></div>
   </section>
 
   <!-- ================= SCREEN: ZAKAT (Ramadan-to-Ramadan tracker) ================= -->
