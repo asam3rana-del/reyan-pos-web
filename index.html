@@ -38,6 +38,8 @@
         <button data-screen="partyReports" class="nav-btn">Party Reports</button>
         <button data-screen="reminders" class="nav-btn">Due Reminders</button>
         <button data-screen="cash" class="nav-btn">Cash</button>
+        <button data-screen="cashRegister" class="nav-btn">Till / Register</button>
+        <button data-screen="shellLedger" class="nav-btn">Shell Ledger</button>
         <button data-screen="expenses" class="nav-btn">Expenses</button>
         <button data-screen="reports" class="nav-btn">Reports</button>
         <button data-screen="paymentsReport" class="nav-btn">Payments Report</button>
@@ -152,6 +154,45 @@
       </div>
     </div>
 
+    <!-- App Settings — shop-wide, synced via `app_settings` (mirrors Android's
+         SettingsActivity.kt whitelisted keys). Setup screen is already
+         admin-only (SCREEN_ACCESS.setup), so no extra role toggle needed
+         here, unlike the Staff Users card below. -->
+    <div class="setup-card" id="setupAppSettingsCard">
+      <h1>Shop / App Settings</h1>
+      <p class="muted">
+        Ye settings poore branch mein sync hoti hain (Android app sameet) — upar wale
+        "Shop Name/Phone/Address" se alag hain, jo sirf is browser ke print-header ke liye hain.
+      </p>
+
+      <label>Shop Name</label>
+      <input id="appSetShopName" type="text" placeholder="IBTISAAM Kiryana Store" />
+      <label>Phone <span class="muted">(optional)</span></label>
+      <input id="appSetShopPhone" type="text" placeholder="03xx-xxxxxxx" />
+      <label>Address <span class="muted">(optional)</span></label>
+      <input id="appSetShopAddress" type="text" placeholder="Address" />
+      <label>Receipt Footer <span class="muted">(optional)</span></label>
+      <input id="appSetReceiptFooter" type="text" placeholder="Shukriya! Dobara tashreef laayein" />
+
+      <div class="field-row">
+        <div class="field">
+          <label>CURRENCY</label>
+          <select id="appSetCurrency">
+            <option value="Rs">Rs</option>
+            <option value="$">$</option>
+            <option value="₹">₹</option>
+            <option value="৳">৳</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>TAX %</label>
+          <input id="appSetTaxPercent" type="number" min="0" step="0.01" placeholder="0" />
+        </div>
+      </div>
+
+      <button id="btnSaveAppSettings" class="btn-primary full-width" style="margin-top:8px;">Save Settings</button>
+    </div>
+
     <!-- Staff Users (admin-only) — shown/unhidden post-login by app.js's
          enterApp(); stays hidden pre-login since the `users` cache/session
          it depends on don't exist yet. -->
@@ -222,6 +263,16 @@
         <div class="quick-icon">⚠</div>
         <div class="quick-title">Low Stock</div>
         <div class="quick-sub">Items needing restock</div>
+      </button>
+      <button class="quick-card quick-blue" data-screen="cashRegister">
+        <div class="quick-icon">🗄</div>
+        <div class="quick-title">Till / Register</div>
+        <div class="quick-sub">Open/close today's till</div>
+      </button>
+      <button class="quick-card quick-amber" data-screen="shellLedger">
+        <div class="quick-icon">🧴</div>
+        <div class="quick-title">Shell Ledger</div>
+        <div class="quick-sub">Empty bottle/crate deposits</div>
       </button>
     </div>
 
@@ -758,6 +809,129 @@
 
       <h3 class="section-label">LEDGER</h3>
       <div id="stockHistoryList" class="list-box"></div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: CASH REGISTER / TILL ================= -->
+  <section id="screen-cashRegister" class="screen hidden">
+    <h1>Cash Register</h1>
+
+    <!-- State A: today's register hasn't been opened yet -->
+    <div class="card hidden" id="registerClosedCard">
+      <div class="card-title">Open Today's Register</div>
+      <div class="field-row">
+        <div class="field">
+          <label>OPENING CASH</label>
+          <input id="regOpeningCash" type="number" min="0" step="any" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>OPENING BANK</label>
+          <input id="regOpeningBank" type="number" min="0" step="any" placeholder="0" />
+        </div>
+      </div>
+      <button id="btnOpenRegister" class="btn-primary full-width">OPEN REGISTER</button>
+    </div>
+
+    <!-- State B: register is open (or was, and is now closed) for today -->
+    <div class="hidden" id="registerOpenCard">
+      <div class="stats-row">
+        <div class="stat-card stat-blue">
+          <div class="stat-label">Opening Cash</div>
+          <div class="stat-value" id="regStatOpeningCash">Rs 0.00</div>
+        </div>
+        <div class="stat-card stat-purple">
+          <div class="stat-label">Opening Bank</div>
+          <div class="stat-value" id="regStatOpeningBank">Rs 0.00</div>
+        </div>
+        <div class="stat-card stat-teal">
+          <div class="stat-label">Expected Closing (Cash)</div>
+          <div class="stat-value" id="regStatExpectedClosing">Rs 0.00</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <button id="btnCloseRegister" class="btn-primary full-width">CLOSE REGISTER</button>
+        <button id="btnReopenRegister" class="btn-secondary full-width hidden" style="margin-top:8px;">REOPEN REGISTER</button>
+        <p id="registerClosedNote" class="muted hidden" style="margin-top:8px;"></p>
+      </div>
+
+      <!-- Close dialog — inline card, mirrors Android's counted-cash dialog -->
+      <div class="card hidden" id="closeRegisterDialog">
+        <div class="card-title">Close Register — Enter Counted Amounts</div>
+        <div class="field-row">
+          <div class="field">
+            <label>COUNTED CASH</label>
+            <input id="regClosingCashInput" type="number" min="0" step="any" placeholder="0" />
+          </div>
+          <div class="field">
+            <label>COUNTED BANK</label>
+            <input id="regClosingBankInput" type="number" min="0" step="any" placeholder="0" />
+          </div>
+        </div>
+        <p class="muted" id="regShortageExcess" style="margin:6px 0 10px;"></p>
+        <div class="button-row">
+          <button id="btnConfirmCloseRegister" class="btn-primary">CONFIRM CLOSE</button>
+          <button id="btnCancelCloseRegister" class="btn-secondary">CANCEL</button>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="section-label">RECENT HISTORY</h3>
+    <div id="registerHistoryList" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: SHELL LEDGER ================= -->
+  <section id="screen-shellLedger" class="screen hidden">
+    <h1>Shell Ledger</h1>
+
+    <div class="card">
+      <div class="card-title">New Transaction</div>
+      <div class="button-row">
+        <button id="btnShellIssue" class="report-filter-pill active">Issue</button>
+        <button id="btnShellReturn" class="report-filter-pill">Return</button>
+      </div>
+
+      <label>CUSTOMER NAME</label>
+      <input id="shellCustomerName" type="text" placeholder="Type name..." autocomplete="off" />
+      <div id="shellCustomerSuggestions" class="suggestions hidden"></div>
+
+      <div id="shellNewCustomerPhoneField">
+        <label>PHONE <span class="muted">(optional, naye customer ke liye)</span></label>
+        <input id="shellCustomerPhone" type="text" placeholder="03xx-xxxxxxx" />
+      </div>
+
+      <label>QTY</label>
+      <input id="shellQty" type="number" min="0" step="1" placeholder="0" />
+
+      <label>NOTE <span class="muted">(optional)</span></label>
+      <input id="shellNote" type="text" placeholder="Optional note" />
+
+      <button id="btnSaveShellTransaction" class="btn-primary full-width">SAVE</button>
+    </div>
+
+    <h3 class="section-label">CUSTOMERS</h3>
+    <input id="shellCustomerSearch" type="text" placeholder="Search customers..." style="margin-bottom:10px;" />
+    <div id="shellCustomerList" class="list-box"></div>
+
+    <!-- Selected customer's transaction history -->
+    <div class="card hidden" id="shellHistoryCard">
+      <div class="row-between">
+        <div class="card-title" id="shellHistoryTitle">Customer</div>
+        <button id="btnCloseShellHistory" class="btn-secondary">✕ Close</button>
+      </div>
+      <div id="shellHistoryList" class="list-box"></div>
+    </div>
+
+    <h3 class="section-label">SHOP STOCK — EMPTY SHELLS IN HAND</h3>
+    <div class="card" id="shopStockCard">
+      <div class="row-between">
+        <div class="stat-value" id="shopShellCount">0</div>
+        <div class="button-row">
+          <button id="btnShopShellAdd" class="btn-secondary">➕ Add</button>
+          <button id="btnShopShellRemove" class="btn-secondary">➖ Remove</button>
+        </div>
+      </div>
+      <div id="shopShellLogList" class="list-box" style="margin-top:10px;"></div>
     </div>
   </section>
 
