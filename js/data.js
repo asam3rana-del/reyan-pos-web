@@ -13,6 +13,47 @@ import {
 } from "./firebase-init.js";
 // (smallestUnitFactor already imported above — used by loadBalanceSheet())
 
+// ---------- Tombstone delete (mirrors SyncApi.kt's push() "delete" branch,
+// field-for-field) — used for every collection the Android app two-way-syncs
+// (customers, suppliers, products, users, sales, purchases, payments,
+// expenses, cash_transactions). A plain deleteDoc() here would be invisible
+// to the Android app: its pull() only asks Firestore for documents whose
+// `updatedAt` is greater than its last checkpoint, and a hard-deleted
+// document simply isn't there to match that query, so Android would never
+// learn the record was removed and could even resurrect it on its next push.
+// Writing a timestamped `_deleted: true` tombstone instead means the doc
+// still has an `updatedAt` for pull() to find, exactly like Android's own
+// deletes. Same conflict guard as the Kotlin version too: inside a
+// transaction, only write the tombstone if this delete is at least as new
+// as whatever's on the server, so an offline delete can never clobber a
+// newer edit that already reached the cloud. Categories/units are NOT
+// covered by this — Android has no Firestore collection for them at all
+// (ItemsActivity.kt's Categories/Units tabs are local-only Room data), so
+// those two stay plain deleteDoc() below; they were never two-way-synced
+// with the Android app to begin with. */
+async function tombstoneDelete(collectionName, id) {
+  const docRef = doc(db(), collectionName, id);
+  const deleteAt = Date.now();
+  await runTransaction(db(), async (txn) => {
+    const snap = await txn.get(docRef);
+    const serverUpdatedAt = snap.exists() ? (snap.data().updatedAt || 0) : 0;
+    if (!snap.exists() || deleteAt >= serverUpdatedAt) {
+      txn.set(docRef, { serverId: id, _deleted: true, updatedAt: deleteAt, branchId: branchId() }, { merge: true });
+    }
+  });
+}
+
+// A tombstoneDelete() above leaves the document in place (with `_deleted: true`)
+// so Android's pull() can see it was removed — every read of a tombstone-capable
+// collection (products, customers, suppliers, users, sales, purchases, payments,
+// expenses, cash_transactions) must filter these out itself, the same way
+// Android's applyServerChanges() checks `row["_deleted"] == true` before using a
+// pulled row. Categories/units/zakat collections never get tombstoned (see the
+// comment above tombstoneDelete), so their reads don't need this.
+function aliveDocs(snap) {
+  return snap.docs.filter(d => d.data()._deleted !== true);
+}
+
 // ---------- Live caches (kept simple: one listener per collection per branch) ----------
 
 export let products = [];   // [{barcode,name,category,cost,salePrice,stock,unit,...}]
@@ -29,7 +70,7 @@ export function startProductListener(onChange) {
   if (_productsUnsub) _productsUnsub();
   const q = query(collection(db(), "products"), where("branchId", "==", branchId()));
   _productsUnsub = onSnapshot(q, (snap) => {
-    products = snap.docs.map(d => ({ ...d.data(), barcode: d.id }));
+    products = aliveDocs(snap).map(d => ({ ...d.data(), barcode: d.id }));
     onChange && onChange(products);
   });
 }
@@ -82,7 +123,7 @@ export function startCustomerListener(onChange) {
   if (_customersUnsub) _customersUnsub();
   const q = query(collection(db(), "customers"), where("branchId", "==", branchId()));
   _customersUnsub = onSnapshot(q, (snap) => {
-    customers = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    customers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
     onChange && onChange(customers);
   });
 }
@@ -91,7 +132,7 @@ export function startSupplierListener(onChange) {
   if (_suppliersUnsub) _suppliersUnsub();
   const q = query(collection(db(), "suppliers"), where("branchId", "==", branchId()));
   _suppliersUnsub = onSnapshot(q, (snap) => {
-    suppliers = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    suppliers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
     onChange && onChange(suppliers);
   });
 }
@@ -104,7 +145,7 @@ export function startUserListener(onChange) {
   if (_usersUnsub) _usersUnsub();
   const q = query(collection(db(), "users"), where("branchId", "==", branchId()));
   _usersUnsub = onSnapshot(q, (snap) => {
-    users = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    users = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
     onChange && onChange(users);
   });
 }
@@ -114,7 +155,7 @@ export function startUserListener(onChange) {
 export async function fetchUsersOnce() {
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "users"), where("branchId", "==", bId)));
-  return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  return aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
 }
 
 export function findUserByUsername(username) {
@@ -152,7 +193,7 @@ export async function setUserActive(userId, active) {
 }
 
 export async function deleteWebUser(userId) {
-  await deleteDoc(doc(db(), "users", userId));
+  await tombstoneDelete("users", userId);
 }
 
 export function findCustomerByName(name) {
@@ -218,11 +259,11 @@ export async function saveSupplier({ id, name, phone, openingBalance }) {
 }
 
 export async function deleteCustomer(id) {
-  await deleteDoc(doc(db(), "customers", id));
+  await tombstoneDelete("customers", id);
 }
 
 export async function deleteSupplier(id) {
-  await deleteDoc(doc(db(), "suppliers", id));
+  await tombstoneDelete("suppliers", id);
 }
 
 // ---------- Party transaction history + Payments (mirrors PartyTransactionActivity.kt —
@@ -241,12 +282,12 @@ export async function loadPartyTransactions(partyId, partyType) {
     const snap = await getDocs(query(
       collection(db(), "sales"), where("branchId", "==", bId), where("customerServerId", "==", partyId)
     ));
-    return snap.docs.map(d => ({ ...d.data(), kind: "sale" }));
+    return aliveDocs(snap).map(d => ({ ...d.data(), kind: "sale" }));
   }
   const snap = await getDocs(query(
     collection(db(), "purchases"), where("branchId", "==", bId), where("supplierServerId", "==", partyId)
   ));
-  return snap.docs.map(d => ({ ...d.data(), kind: "purchase" }));
+  return aliveDocs(snap).map(d => ({ ...d.data(), kind: "purchase" }));
 }
 
 export async function loadPartyPayments(partyId, partyType) {
@@ -255,7 +296,7 @@ export async function loadPartyPayments(partyId, partyType) {
     collection(db(), "payments"), where("branchId", "==", bId),
     where("partyId", "==", partyId), where("partyType", "==", partyType)
   ));
-  return snap.docs.map(d => ({ ...d.data(), kind: "payment" }));
+  return aliveDocs(snap).map(d => ({ ...d.data(), kind: "payment" }));
 }
 
 export async function savePartyPayment({ partyId, partyType, partyName, amount, method, note }) {
@@ -304,7 +345,7 @@ export async function loadPaymentsReport(rangeStart, rangeEnd) {
     where("createdAt", "<=", rangeEnd)
   ));
 
-  const list = snap.docs.map(d => {
+  const list = aliveDocs(snap).map(d => {
     const p = d.data();
     const party = p.partyType === "customer"
       ? customers.find(c => c.id === p.partyId)
@@ -394,7 +435,7 @@ export async function saveProduct({
 }
 
 export async function deleteProduct(barcode) {
-  await deleteDoc(doc(db(), "products", barcode));
+  await tombstoneDelete("products", barcode);
 }
 
 // ---------- Save a sale (mirrors SyncQueueHelper.saleJson() field-for-field) ----------
@@ -476,12 +517,12 @@ export async function loadSaleHistory() {
   const bId = branchId();
   const q = query(collection(db(), "sales"), where("branchId", "==", bId));
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
+  return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getSaleByInvoice(invoice) {
   const snap = await getDoc(doc(db(), "sales", ids.sale(invoice)));
-  return snap.exists() ? snap.data() : null;
+  return (snap.exists() && snap.data()._deleted !== true) ? snap.data() : null;
 }
 
 // ---------- Due Date Reminders — credit sales that were given an optional
@@ -492,7 +533,7 @@ export async function getSaleByInvoice(invoice) {
 export async function loadDueReminders() {
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "sales"), where("branchId", "==", bId)));
-  return snap.docs.map(d => d.data())
+  return aliveDocs(snap).map(d => d.data())
     .filter(s => s.status === "active" && (s.dueDate || 0) > 0 && (s.total - s.paid) > 0.0001)
     .map(s => {
       const customer = customers.find(c => c.id === s.customerServerId);
@@ -544,7 +585,7 @@ export async function deleteSaleBill(invoice) {
   const sale = await getSaleByInvoice(invoice);
   if (!sale) throw new Error("Sale not found");
   await reverseSaleEffects(sale);
-  await deleteDoc(doc(db(), "sales", ids.sale(invoice)));
+  await tombstoneDelete("sales", ids.sale(invoice));
 }
 
 // Returns a sale — same reversal as delete, but the sale record is KEPT with
@@ -694,12 +735,12 @@ export async function loadPurchaseHistory() {
   const bId = branchId();
   const q = query(collection(db(), "purchases"), where("branchId", "==", bId));
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
+  return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getPurchaseByBillNo(billNo) {
   const snap = await getDoc(doc(db(), "purchases", ids.purchase(billNo)));
-  return snap.exists() ? snap.data() : null;
+  return (snap.exists() && snap.data()._deleted !== true) ? snap.data() : null;
 }
 
 async function deleteDocsByReference(collectionName, billNo) {
@@ -707,7 +748,7 @@ async function deleteDocsByReference(collectionName, billNo) {
   const q = query(collection(db(), collectionName), where("branchId", "==", bId), where("reference", "==", billNo));
   const snap = await getDocs(q);
   for (const d of snap.docs) {
-    try { await deleteDoc(doc(db(), collectionName, d.id)); } catch (e) { console.warn(`${collectionName} delete failed`, e); }
+    try { await tombstoneDelete(collectionName, d.id); } catch (e) { console.warn(`${collectionName} delete failed`, e); }
   }
 }
 
@@ -767,7 +808,7 @@ export async function deletePurchaseBill(billNo) {
   const purchase = await getPurchaseByBillNo(billNo);
   if (!purchase) throw new Error("Purchase not found");
   await reversePurchaseEffects(purchase);
-  await deleteDoc(doc(db(), "purchases", ids.purchase(billNo)));
+  await tombstoneDelete("purchases", ids.purchase(billNo));
 }
 
 // Edits an existing bill in place (same billNo). `original` is the raw
@@ -892,7 +933,7 @@ export async function loadTodayStats() {
   );
   const snap = await getDocs(q);
   let totalSale = 0, totalProfit = 0;
-  snap.forEach(d => {
+  aliveDocs(snap).forEach(d => {
     const s = d.data();
     if (s.status === "active") {
       totalSale += s.total || 0;
@@ -909,8 +950,8 @@ export async function loadDuesSummary() {
   const custSnap = await getDocs(query(collection(db(), "customers"), where("branchId", "==", bId)));
   const suppSnap = await getDocs(query(collection(db(), "suppliers"), where("branchId", "==", bId)));
   let youllGet = 0, youllGive = 0;
-  custSnap.forEach(d => { const b = d.data().balance || 0; if (b > 0) youllGet += b; });
-  suppSnap.forEach(d => { const b = d.data().balance || 0; if (b > 0) youllGive += b; });
+  aliveDocs(custSnap).forEach(d => { const b = d.data().balance || 0; if (b > 0) youllGet += b; });
+  aliveDocs(suppSnap).forEach(d => { const b = d.data().balance || 0; if (b > 0) youllGive += b; });
   return { youllGet, youllGive };
 }
 
@@ -927,7 +968,7 @@ export async function loadDayBook(dateStr) {
     where("createdAt", "<=", end.getTime())
   );
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
+  return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 // ---------- Stock report ----------
@@ -960,7 +1001,7 @@ export async function loadTodayCashTotals() {
   );
   const snap = await getDocs(q);
   let cashIn = 0, cashOut = 0;
-  snap.forEach(d => {
+  aliveDocs(snap).forEach(d => {
     const t = d.data();
     if (t.type === "IN") cashIn += t.amount || 0;
     else if (t.type === "OUT") cashOut += t.amount || 0;
@@ -971,7 +1012,7 @@ export async function loadTodayCashTotals() {
 export async function loadRecentCashTransactions(limitCount = 50) {
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "cash_transactions"), where("branchId", "==", bId)));
-  return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
+  return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
 }
 
 // ---------- Expenses (mirrors ExpenseActivity.kt — a separate `expenses`
@@ -989,7 +1030,7 @@ export async function saveExpense({ category, description, amount }) {
 }
 
 export async function deleteExpense(serverId) {
-  await deleteDoc(doc(db(), "expenses", serverId));
+  await tombstoneDelete("expenses", serverId);
 }
 
 export async function loadExpenseTotals() {
@@ -1000,7 +1041,7 @@ export async function loadExpenseTotals() {
 
   const snap = await getDocs(query(collection(db(), "expenses"), where("branchId", "==", bId)));
   let today = 0, month = 0;
-  snap.forEach(d => {
+  aliveDocs(snap).forEach(d => {
     const e = d.data();
     if ((e.createdAt || 0) >= dayStart.getTime()) today += e.amount || 0;
     if ((e.createdAt || 0) >= monthStart.getTime()) month += e.amount || 0;
@@ -1011,7 +1052,7 @@ export async function loadExpenseTotals() {
 export async function loadRecentExpenses(limitCount = 50) {
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "expenses"), where("branchId", "==", bId)));
-  return snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
+  return aliveDocs(snap).map(d => ({ ...d.data(), id: d.id })).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
 }
 
 // ---------- Stock Adjustments & Stock Taking (new `stock_adjustments`
@@ -1085,7 +1126,7 @@ export async function loadStockHistoryForProduct(barcode, limitCount = 200) {
   // unit ladder (which may have changed since).
   const saleLineConversion = {};
 
-  salesSnap.docs.forEach(d => {
+  aliveDocs(salesSnap).forEach(d => {
     const s = d.data();
     (s.items || []).forEach(it => {
       saleLineConversion[`${s.invoice}|${it.barcode}`] = it.conversionFactor || 0;
@@ -1102,7 +1143,7 @@ export async function loadStockHistoryForProduct(barcode, limitCount = 200) {
     });
   });
 
-  purchasesSnap.docs.forEach(d => {
+  aliveDocs(purchasesSnap).forEach(d => {
     const p = d.data();
     (p.items || []).forEach(it => {
       if (it.barcode !== barcode) return;
