@@ -286,6 +286,49 @@ export async function savePartyPayment({ partyId, partyType, partyName, amount, 
   return id;
 }
 
+// ---------- Payments / Party Report (mirrors PaymentsReportActivity.kt —
+// every `payments` doc in range, whichever source wrote it: a manual Receive/
+// Make Payment from the Party detail screen above, OR the automatic payment
+// savePurchase() creates when a purchase is paid against a real supplier at
+// bill time. NOTE a known asymmetry, already flagged elsewhere in this repo's
+// notes: saveSale() does NOT create a matching payment when a sale is paid
+// against a real customer at bill time — only Purchase does — so a straight
+// cash/credit sale's paid amount won't show up here unless it was recorded
+// separately via Record Receive Payment. ----------
+export async function loadPaymentsReport(rangeStart, rangeEnd) {
+  const bId = branchId();
+  const snap = await getDocs(query(
+    collection(db(), "payments"),
+    where("branchId", "==", bId),
+    where("createdAt", ">=", rangeStart),
+    where("createdAt", "<=", rangeEnd)
+  ));
+
+  const list = snap.docs.map(d => {
+    const p = d.data();
+    const party = p.partyType === "customer"
+      ? customers.find(c => c.id === p.partyId)
+      : suppliers.find(s => s.id === p.partyId);
+    return { ...p, partyName: party ? party.name : "Unknown" };
+  }).sort((a, b) => b.createdAt - a.createdAt);
+
+  let totalReceived = 0, totalPaid = 0;
+  const byParty = new Map(); // partyId -> { partyName, partyType, received, paid }
+  list.forEach(p => {
+    if (p.partyType === "customer") totalReceived += p.amount; else totalPaid += p.amount;
+    const key = p.partyType + "|" + p.partyId;
+    const row = byParty.get(key) || { partyName: p.partyName, partyType: p.partyType, received: 0, paid: 0 };
+    if (p.partyType === "customer") row.received += p.amount; else row.paid += p.amount;
+    byParty.set(key, row);
+  });
+
+  return {
+    payments: list,
+    totalReceived, totalPaid, netCashFlow: totalReceived - totalPaid,
+    partySummary: Array.from(byParty.values()).sort((a, b) => (b.received + b.paid) - (a.received + a.paid))
+  };
+}
+
 // ---------- Product CRUD (mirrors ProductActivity.kt's save logic + Database.kt's
 // Product entity). Doc id === barcode. `stock` is deliberately never overwritten by
 // a plain save here (same reasoning as productJson() on Android) — a brand-new
@@ -358,7 +401,7 @@ export async function deleteProduct(barcode) {
 //
 // lines: [{ barcode, product, qty, unit, unitPrice, cost, amount }]
 // Returns the invoice number on success.
-export async function saveSale({ lines, customerName, saleType, subtotal, discount, total, paid, paymentMethod }) {
+export async function saveSale({ lines, customerName, saleType, subtotal, discount, total, paid, paymentMethod, dueDate }) {
   if (!lines.length) throw new Error("No items in cart");
 
   const invoice = ids.invoice();
@@ -383,7 +426,7 @@ export async function saveSale({ lines, customerName, saleType, subtotal, discou
     saleType,
     createdAt: Date.now(),
     status: "active",
-    dueDate: 0,
+    dueDate: dueDate || 0,
     itemCount: lines.length,
     items: itemMaps,
     updatedAt: Date.now(),
@@ -439,6 +482,28 @@ export async function loadSaleHistory() {
 export async function getSaleByInvoice(invoice) {
   const snap = await getDoc(doc(db(), "sales", ids.sale(invoice)));
   return snap.exists() ? snap.data() : null;
+}
+
+// ---------- Due Date Reminders — credit sales that were given an optional
+// `dueDate` (Sale screen's "Due Date" field, only shown when there's an
+// outstanding due) and still have an unpaid balance. Purely a read-side
+// query, same `sales` collection Day Book/Sale History already use — no new
+// collection, so nothing new for the Android side to sync. ----------
+export async function loadDueReminders() {
+  const bId = branchId();
+  const snap = await getDocs(query(collection(db(), "sales"), where("branchId", "==", bId)));
+  return snap.docs.map(d => d.data())
+    .filter(s => s.status === "active" && (s.dueDate || 0) > 0 && (s.total - s.paid) > 0.0001)
+    .map(s => {
+      const customer = customers.find(c => c.id === s.customerServerId);
+      return {
+        invoice: s.invoice, dueDate: s.dueDate, total: s.total, paid: s.paid,
+        due: s.total - s.paid,
+        customerName: customer ? customer.name : "Cash/Unknown",
+        customerPhone: customer ? (customer.phone || "") : ""
+      };
+    })
+    .sort((a, b) => a.dueDate - b.dueDate);
 }
 
 // Reverses a sale's stock + customer-balance effects (the exact inverse of the
@@ -508,7 +573,9 @@ export async function returnSaleBill(invoice) {
   }
 
   await updateDoc(doc(db(), "sales", ids.sale(invoice)), { status: "returned", updatedAt: Date.now() });
-} (mirrors PurchaseRepository.savePurchase() +
+}
+
+// ---------- Save a purchase (mirrors PurchaseRepository.savePurchase() +
 // SyncQueueHelper.purchaseJson() field-for-field — create-only for now, same
 // as saveSale(); editing an existing bill is a later phase, like the Android
 // history screen's edit flow). ----------
@@ -985,6 +1052,107 @@ export async function loadRecentStockAdjustments(limitCount = 30) {
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "stock_adjustments"), where("branchId", "==", bId)));
   return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
+}
+
+// ---------- Stock/Cost History ledger (mirrors the Android app's
+// StockMovementActivity — a per-product chronological ledger of every event
+// that ever touched `stock`: Purchases (in), Sales (out, including a second
+// "Return" row when a sale was returned — the stock genuinely moved twice),
+// and Stock Adjustments/Stock Takes (in or out, from the Adjust/Take tabs
+// above). Unlike Android's dedicated `stock_movements` table, this is
+// derived on read from the existing purchases/sales/returns/stock_adjustments
+// collections rather than written at save-time — simpler, and avoids adding
+// a new synced collection the Android side doesn't know about yet. Known
+// limitation: a purchase bill that was later fully DELETED (not returned) is
+// gone from `purchases` entirely, so it silently drops out of this ledger
+// too — same as Android has no record of a deleted bill either. ----------
+export async function loadStockHistoryForProduct(barcode, limitCount = 200) {
+  const bId = branchId();
+  const [purchasesSnap, salesSnap, returnsSnap, adjustSnap] = await Promise.all([
+    getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "returns"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "stock_adjustments"), where("branchId", "==", bId)))
+  ]);
+
+  const product = products.find(p => p.barcode === barcode) || null;
+  const events = [];
+
+  // Look up each sale-item's conversionFactor by "invoice|barcode" so a
+  // later `returns` row (which only stores qty, no unit/conversionFactor)
+  // can still be converted to the exact same smallest-unit basis the
+  // original sale used, instead of guessing from the product's CURRENT
+  // unit ladder (which may have changed since).
+  const saleLineConversion = {};
+
+  salesSnap.docs.forEach(d => {
+    const s = d.data();
+    (s.items || []).forEach(it => {
+      saleLineConversion[`${s.invoice}|${it.barcode}`] = it.conversionFactor || 0;
+      if (it.barcode !== barcode) return;
+      const smallest = it.conversionFactor > 0 ? it.qty * it.conversionFactor : toSmallestUnits(product || { unit: it.unit }, it.qty, it.unit);
+      events.push({
+        createdAt: s.createdAt,
+        type: s.status === "returned" ? "Sale (returned)" : "Sale",
+        direction: "out",
+        qty: it.qty, unit: it.unit, rate: it.unitPrice,
+        deltaSmallest: -smallest,
+        reference: s.invoice, note: ""
+      });
+    });
+  });
+
+  purchasesSnap.docs.forEach(d => {
+    const p = d.data();
+    (p.items || []).forEach(it => {
+      if (it.barcode !== barcode) return;
+      const smallest = it.conversionFactor > 0 ? it.qty * it.conversionFactor : toSmallestUnits(product || { unit: it.unit }, it.qty, it.unit);
+      events.push({
+        createdAt: p.createdAt, type: "Purchase", direction: "in",
+        qty: it.qty, unit: it.unit, rate: it.unitCost,
+        deltaSmallest: smallest,
+        reference: p.billNo, note: ""
+      });
+    });
+  });
+
+  returnsSnap.docs.forEach(d => {
+    const r = d.data();
+    if (r.barcode !== barcode || r.type !== "sale") return;
+    const factor = saleLineConversion[`${r.reference}|${r.barcode}`] || 0;
+    const smallest = factor > 0 ? r.qty * factor : toSmallestUnits(product || { unit: "" }, r.qty, "");
+    events.push({
+      createdAt: r.createdAt, type: "Return", direction: "in",
+      qty: r.qty, unit: "", rate: 0,
+      deltaSmallest: smallest,
+      reference: r.reference, note: `Return against sale #${r.reference}`
+    });
+  });
+
+  adjustSnap.docs.forEach(d => {
+    const a = d.data();
+    if (a.barcode !== barcode) return;
+    events.push({
+      createdAt: a.createdAt,
+      type: a.type === "stocktake" ? "Stock Take" : "Adjustment",
+      direction: a.deltaSmallest >= 0 ? "in" : "out",
+      qty: Math.abs(a.qtyEntered || 0), unit: a.unit || "",
+      rate: 0, deltaSmallest: a.deltaSmallest,
+      reference: a.reason || "", note: a.note || ""
+    });
+  });
+
+  events.sort((a, b) => b.createdAt - a.createdAt);
+
+  // Walk newest → oldest, unwinding each event's delta from the product's
+  // CURRENT stock to reconstruct the running balance at each point in time.
+  let running = product ? (product.stock || 0) : 0;
+  for (const ev of events) {
+    ev.balanceAfterSmallest = running;
+    running -= ev.deltaSmallest;
+  }
+
+  return events.slice(0, limitCount);
 }
 
 // ---------- Profit & Loss report (mirrors ReportsActivity.kt's loadReport() —

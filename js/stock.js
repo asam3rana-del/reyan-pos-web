@@ -6,7 +6,7 @@
 // See data.js's saveStockAdjustment()/saveStockTake() for the backend half.
 // ================================================================
 
-import { products, lowStockProducts, saveStockAdjustment, saveStockTake, loadRecentStockAdjustments } from "./data.js";
+import { products, lowStockProducts, saveStockAdjustment, saveStockTake, loadRecentStockAdjustments, loadStockHistoryForProduct } from "./data.js";
 import { unitNames, toSmallestUnits } from "./firebase-init.js";
 import { showToast } from "./ui.js";
 
@@ -20,9 +20,11 @@ export function initStockScreens() {
   el("tabStockReport").addEventListener("click", () => switchStockTab("report"));
   el("tabStockAdjust").addEventListener("click", () => switchStockTab("adjust"));
   el("tabStockTake").addEventListener("click", () => switchStockTab("take"));
+  el("tabStockHistory").addEventListener("click", () => switchStockTab("history"));
 
   initAdjustTab();
   initTakeTab();
+  initHistoryTab();
 }
 
 /** Called by app.js whenever the Stock nav button is pressed — re-renders
@@ -37,13 +39,16 @@ function switchStockTab(tab) {
   el("tabStockReport").classList.toggle("active", tab === "report");
   el("tabStockAdjust").classList.toggle("active", tab === "adjust");
   el("tabStockTake").classList.toggle("active", tab === "take");
+  el("tabStockHistory").classList.toggle("active", tab === "history");
   el("stockReportTab").classList.toggle("hidden", tab !== "report");
   el("stockAdjustTab").classList.toggle("hidden", tab !== "adjust");
   el("stockTakeTab").classList.toggle("hidden", tab !== "take");
+  el("stockHistoryTab").classList.toggle("hidden", tab !== "history");
 
   if (tab === "report") renderStockReport();
   if (tab === "adjust") renderAdjustHistory();
   if (tab === "take") renderTakeTable();
+  if (tab === "history") renderHistorySuggestions(""); // keep last-selected product's ledger visible, just refresh the picker list
 }
 
 // ---------- Report tab (identical logic to the old reports.js renderStock()) ----------
@@ -278,4 +283,87 @@ function initTakeTab() {
       updateTakeSummary();
     }
   });
+}
+
+// ================================================================
+// History tab — per-product Stock/Cost ledger (mirrors the Android app's
+// StockMovementActivity). Product picker mirrors Adjust's own
+// search/suggestions pattern above; once a product is chosen,
+// loadStockHistoryForProduct() (data.js) returns every Purchase/Sale/
+// Return/Adjustment/Stock-Take event for it, newest first, each already
+// carrying the reconstructed running balance.
+// ================================================================
+
+let historySelectedProduct = null;
+
+function money(n) {
+  return "Rs " + (n || 0).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderHistorySuggestions(q) {
+  const box = el("historySuggestions");
+  if (!q) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  const matches = products.filter(p => p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
+  if (!matches.length) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.innerHTML = "";
+  matches.forEach(p => {
+    const d = document.createElement("div");
+    d.textContent = `${p.name} — stock ${p.stock} ${unitNames(p)[0]}`;
+    d.addEventListener("click", () => selectHistoryProduct(p));
+    box.appendChild(d);
+  });
+  box.classList.remove("hidden");
+}
+
+async function selectHistoryProduct(p) {
+  historySelectedProduct = p;
+  el("historySearch").value = p.name;
+  el("historySuggestions").classList.add("hidden");
+  await renderHistoryLedger();
+}
+
+async function renderHistoryLedger() {
+  const box = el("stockHistoryList");
+  if (!box) return;
+  if (!historySelectedProduct) { box.innerHTML = "<p class='muted'>Item search karein history dekhne ke liye.</p>"; return; }
+
+  box.innerHTML = "<p class='muted'>Loading...</p>";
+  const finestUnit = unitNames(historySelectedProduct)[0];
+  let events;
+  try {
+    events = await loadStockHistoryForProduct(historySelectedProduct.barcode);
+  } catch (e) {
+    box.innerHTML = `<p class='muted'>Error: ${e.message}</p>`;
+    return;
+  }
+
+  box.innerHTML = "";
+  if (!events.length) { box.innerHTML = "<p class='muted'>Is item ki koi movement history nahi mili.</p>"; return; }
+
+  events.forEach(ev => {
+    const sign = ev.direction === "in" ? "+" : "−";
+    const qtyLabel = ev.unit ? `${ev.qty} ${ev.unit}` : `${ev.qty} ${finestUnit}`;
+    const rateLine = ev.rate ? `@ ${money(ev.rate)}` : "";
+    const row = document.createElement("div");
+    row.className = "card";
+    row.innerHTML = `
+      <div class="row-between">
+        <div>
+          <div><b>${ev.type}</b> <span class="muted">${new Date(ev.createdAt).toLocaleString("en-PK")}</span></div>
+          <div class="muted">${ev.reference ? "Ref: " + ev.reference : ""} ${ev.note ? "— " + ev.note : ""}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="color:${ev.direction === "in" ? "var(--positive, #1a7f37)" : "var(--negative, #c62828)"};">
+            ${sign} ${qtyLabel} ${rateLine}
+          </div>
+          <div class="muted">Balance: ${ev.balanceAfterSmallest} ${finestUnit}</div>
+        </div>
+      </div>
+    `;
+    box.appendChild(row);
+  });
+}
+
+function initHistoryTab() {
+  el("historySearch").addEventListener("input", (e) => renderHistorySuggestions(e.target.value.trim()));
 }

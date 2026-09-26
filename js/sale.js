@@ -94,6 +94,7 @@ function recalcTotals() {
   el("sumSubtotal").textContent = money(subtotal);
   el("sumTotal").textContent = money(total);
   el("sumDue").textContent = money(due);
+  el("saleDueDateCard").classList.toggle("hidden", due <= 0);
   return { subtotal, discount, total, paid, due };
 }
 
@@ -107,6 +108,7 @@ function resetForm() {
   el("saleDiscount").value = 0;
   el("salePaid").value = 0;
   el("saleCustomer").value = "cash";
+  el("saleDueDate").value = "";
   renderCart();
   recalcTotals();
   recalcLineAmount();
@@ -169,6 +171,10 @@ export function initSaleScreen() {
     const totals = recalcTotals();
     const customerName = el("saleCustomer").value;
     const paymentMethod = el("paymentMethod").value;
+    // Due date is only meaningful when something is actually owed — ignore a
+    // stray value left in the field if paid was bumped back up to full before saving.
+    const dueDateStr = el("saleDueDate").value;
+    const dueDate = (totals.due > 0 && dueDateStr) ? new Date(dueDateStr + "T00:00:00").getTime() : 0;
     el("btnSaveSale").disabled = true;
     try {
       const invoice = await saveSale({
@@ -179,7 +185,8 @@ export function initSaleScreen() {
         discount: totals.discount,
         total: totals.total,
         paid: totals.paid,
-        paymentMethod
+        paymentMethod,
+        dueDate
       });
       // Receipt-shaped snapshot for the Print button — built from what we already
       // have in the browser rather than re-fetching, since saveSale() only returns

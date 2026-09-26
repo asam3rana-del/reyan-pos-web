@@ -19,6 +19,8 @@ import { initStockScreens, renderStockScreen } from "./stock.js";
 import { initCashScreen, refreshCashScreen } from "./cash.js";
 import { initExpensesScreen, refreshExpensesScreen } from "./expenses.js";
 import { initStaffUsersScreen, renderStaffUsersList } from "./users.js";
+import { initRemindersScreen, renderReminders } from "./reminders.js";
+import { initPaymentsReportScreen, renderPaymentsReport } from "./paymentsReport.js";
 import { showToast } from "./ui.js";
 
 // ---------- Role-based screen access (mirrors the Android app's Phase 4
@@ -32,6 +34,7 @@ const SCREEN_ACCESS = {
   purchase: ["admin"],          // PurchaseActivity.kt: admin only
   purchaseHistory: ["admin"],   // same screen family as Purchase above
   reports: ["admin", "manager"],// ReportsActivity.kt/BalanceSheetActivity.kt
+  paymentsReport: ["admin", "manager"], // PaymentsReportActivity.kt — same financial-visibility gate as Reports
   setup: ["admin"]              // Firebase project/branch + shop info
 };
 
@@ -74,6 +77,8 @@ function showScreen(name) {
   if (name === "parties") refreshPartiesList();
   if (name === "cash") refreshCashScreen();
   if (name === "expenses") refreshExpensesScreen();
+  if (name === "reminders") renderReminders();
+  if (name === "paymentsReport") renderPaymentsReport();
   if (name === "reports") {
     // Refresh whichever sub-tab (P&L / Balance Sheet) is currently active.
     const bsActive = document.getElementById("tabBalanceSheet")?.classList.contains("active");
@@ -113,6 +118,8 @@ async function boot() {
   wireNav();
   initReportsScreens();
   initStockScreens();
+  initRemindersScreen();
+  initPaymentsReportScreen();
   wireShopInfoOnlySave();
 
   if (!isConfigured()) {
