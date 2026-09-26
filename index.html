@@ -40,6 +40,7 @@
         <button data-screen="expenses" class="nav-btn">Expenses</button>
         <button data-screen="reports" class="nav-btn">Reports</button>
         <button data-screen="paymentsReport" class="nav-btn">Payments Report</button>
+        <button data-screen="zakat" id="navZakatBtn" class="nav-btn">Zakat</button>
         <button data-screen="setup" id="navSetupBtn" class="nav-btn nav-btn-muted">⚙ Setup</button>
       </nav>
       <div id="userBadge" class="user-badge hidden">
@@ -656,6 +657,13 @@
 
     <h3 class="section-label">TRANSACTIONS</h3>
     <div id="prTransactions" class="list-box"></div>
+  </section>
+
+  <!-- ================= SCREEN: ZAKAT (Ramadan-to-Ramadan tracker) ================= -->
+  <section id="screen-zakat" class="screen hidden">
+    <h1>Zakat</h1>
+    <p class="muted">Ramadan to Ramadan • auto-calculated</p>
+    <div id="zakatBox"></div>
   </section>
 
   <!-- ================= SCREEN: STOCK (Report / Adjust / Take) ================= -->
