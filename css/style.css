@@ -72,6 +72,47 @@ label {
 }
 .nav-btn.active { background: var(--purple-bg); color: var(--purple-fg); }
 .nav-btn-muted { color: var(--text-muted); background: transparent; }
+.quick-amber .quick-icon { color: var(--amber-fg); }
+.quick-coral .quick-icon { color: var(--coral-fg); }
+
+/* ---------- Side drawer (mirrors Android's hamburger drawer) ---------- */
+.hamburger-btn {
+  border: none; background: transparent; font-size: 22px; line-height: 1;
+  padding: 6px 8px; margin-right: 2px; color: var(--text-dark); border-radius: 8px;
+}
+.hamburger-btn:hover { background: var(--field-fill); }
+.nav-backdrop {
+  position: fixed; inset: 0; background: rgba(11, 37, 69, 0.45);
+  z-index: 1000;
+}
+#mainNav.main-nav {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 1001;
+  width: 280px; max-width: 82vw;
+  background: var(--card); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 16px 12px 24px; overflow-y: auto;
+  transform: translateX(-105%);
+  transition: transform 0.22s ease;
+  box-shadow: 2px 0 18px rgba(11, 37, 69, 0.12);
+}
+#mainNav.main-nav.open { transform: translateX(0); }
+#mainNav .nav-btn { text-align: left; width: 100%; }
+.nav-group { display: flex; flex-direction: column; }
+.nav-group-toggle {
+  border: none; background: transparent; color: var(--text-dark);
+  padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 13px;
+  text-align: left; display: flex; align-items: center; justify-content: space-between;
+}
+.nav-group-toggle:hover { background: var(--field-fill); }
+.nav-caret { font-size: 11px; color: var(--text-muted); transition: transform 0.15s ease; }
+.nav-group.open .nav-caret { transform: rotate(180deg); }
+.nav-group-items {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-left: 14px; max-height: 0; overflow: hidden;
+}
+.nav-group.open .nav-group-items { max-height: 400px; }
+.nav-group-items .nav-btn { background: transparent; font-weight: 600; font-size: 12.5px; padding: 9px 16px; }
+.nav-group-items .nav-btn.active { background: var(--purple-bg); color: var(--purple-fg); font-weight: 700; }
 
 /* ---------- Staff login user badge (header) ---------- */
 .user-badge { display: flex; align-items: center; gap: 12px; }
