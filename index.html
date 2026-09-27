@@ -12,8 +12,38 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
 <meta name="theme-color" content="#0B2545" />
 <link rel="stylesheet" href="css/style.css" />
+<!-- Applied as early as possible (before body paint) so a saved dark-mode
+     preference doesn't flash light-then-dark on every reload — theme.js
+     re-does this properly on module load, this is just the anti-flash copy. -->
+<script>
+  (function () {
+    try {
+      if (localStorage.getItem("theme") === "dark") {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
+
+  <button id="btnThemeToggle" class="theme-toggle-btn" aria-label="Toggle dark mode" title="Dark/Light mode">🌙</button>
+
+  <!-- ================= APP LOCK — full-screen PIN gate. Hidden by default;
+       appLock.js shows it on boot (if a PIN is set) and again whenever the
+       tab comes back to the foreground after being backgrounded, mirroring
+       Android's AppLock.kt re-lock-on-resume behaviour. ================= -->
+  <div id="appLockOverlay" class="app-lock-overlay hidden">
+    <div class="app-lock-box">
+      <div class="app-lock-icon">🔒</div>
+      <h2>App Locked</h2>
+      <p class="muted">Apna PIN dalein</p>
+      <input id="appLockPinInput" class="app-lock-pin-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="••••" />
+      <p id="appLockError" class="app-lock-error"></p>
+      <button id="btnAppLockUnlock" class="btn-primary full-width">Unlock</button>
+      <button id="btnAppLockForgot" class="app-lock-forgot">PIN bhool gaye? Logout</button>
+    </div>
+  </div>
 
   <!-- ================= HEADER (shown once connected) ================= -->
   <header id="appHeader" class="app-header hidden">
@@ -82,6 +112,8 @@
 
     <button data-screen="shellLedger" class="nav-btn">🧴 Shell Ledger</button>
     <button data-screen="stock" class="nav-btn">📊 Stock</button>
+    <button data-screen="rateComparison" class="nav-btn">⚖ Rate Comparison</button>
+    <button data-screen="inventoryInsights" class="nav-btn">📈 Inventory Insights</button>
     <button data-screen="dayBook" class="nav-btn">📖 Day Book</button>
     <button data-screen="reports" class="nav-btn">📈 Reports</button>
     <button data-screen="zakat" id="navZakatBtn" class="nav-btn">🕌 Zakat</button>
@@ -91,6 +123,7 @@
       <button class="nav-group-toggle" data-group="settings">⚙ Settings <span class="nav-caret">▾</span></button>
       <div class="nav-group-items">
         <button data-screen="setup" id="navSetupBtn" class="nav-btn">Cloud Sync Setup</button>
+        <button data-screen="appLock" class="nav-btn">🔒 App Lock</button>
       </div>
     </div>
   </nav>
@@ -270,6 +303,41 @@
       <div class="divider-line"></div>
       <h3 class="section-label">ALL USERS</h3>
       <div id="staffUsersList" class="list-box"></div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: APP LOCK SETTINGS ================= -->
+  <section id="screen-appLock" class="screen hidden">
+    <div class="setup-card">
+      <h1>🔒 App Lock</h1>
+      <p class="muted">
+        Ye is browser/device ke liye hai (Android app ke Settings &gt; Security
+        jaisa) — team ke doosre logins ya devices ke saath sync nahi hoti.
+        On karne par, tab background mein jaane ke baad wapas aane par
+        PIN maangega.
+      </p>
+
+      <div id="appLockStatusOff">
+        <label>Set a PIN (4–6 digits)</label>
+        <div class="pin-set-row">
+          <input id="appLockNewPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="New PIN" />
+          <input id="appLockNewPinConfirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Confirm" />
+        </div>
+        <button id="btnAppLockEnable" class="btn-primary full-width" style="margin-top:12px;">Enable App Lock</button>
+      </div>
+
+      <div id="appLockStatusOn" class="hidden">
+        <p><b>App Lock: <span style="color:var(--teal-fg);">ON</span></b></p>
+        <label>Change PIN</label>
+        <div class="pin-set-row">
+          <input id="appLockChangePin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="New PIN" />
+          <input id="appLockChangePinConfirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Confirm" />
+        </div>
+        <button id="btnAppLockChange" class="btn-secondary full-width" style="margin-top:10px;">Update PIN</button>
+        <button id="btnAppLockDisable" class="btn-secondary full-width" style="margin-top:10px;color:var(--red);">Disable App Lock</button>
+      </div>
+
+      <p id="appLockSettingsMsg" class="error-text hidden"></p>
     </div>
   </section>
 
@@ -913,6 +981,50 @@
       <h3 class="section-label">LEDGER</h3>
       <div id="stockHistoryList" class="list-box"></div>
     </div>
+  </section>
+
+  <!-- ================= SCREEN: RATE COMPARISON ================= -->
+  <section id="screen-rateComparison" class="screen hidden">
+    <h1>⚖ Rate Comparison</h1>
+    <p class="muted">Item chunein — dekhein har supplier ne kis rate par diya (purchase history se, rates product ke primary unit par normalize).</p>
+
+    <div id="rateComparePicker">
+      <input id="rateCompareSearch" type="text" placeholder="Item search karein..." autocomplete="off" />
+      <div id="rateCompareSuggestions" class="suggestions hidden"></div>
+    </div>
+
+    <div id="rateCompareResult" class="hidden">
+      <div class="row-between" style="align-items:center; margin: 16px 0 4px;">
+        <h3 id="rateCompareProductName" style="margin:0;"></h3>
+        <button id="btnRateCompareChange" class="report-filter-pill">✕ Change</button>
+      </div>
+      <p class="muted" id="rateCompareSubtext"></p>
+      <div id="rateCompareList" style="margin-top:10px;"></div>
+    </div>
+  </section>
+
+  <!-- ================= SCREEN: INVENTORY INSIGHTS ================= -->
+  <section id="screen-inventoryInsights" class="screen hidden">
+    <h1>📊 Inventory Insights</h1>
+
+    <div class="party-tabs">
+      <button id="invTabReorder" class="nav-btn active" data-mode="reorder">Reorder</button>
+      <button id="invTabDamage" class="nav-btn" data-mode="damage">Damage</button>
+      <button id="invTabProfit" class="nav-btn" data-mode="profit">Margin</button>
+      <button id="invTabMovers" class="nav-btn" data-mode="movers">Movers</button>
+    </div>
+
+    <div class="filter-row hidden" id="invPeriodRow" style="margin-top:10px;">
+      <button class="report-filter-pill active" data-period="today">Today</button>
+      <button class="report-filter-pill" data-period="week">This Week</button>
+      <button class="report-filter-pill" data-period="month">This Month</button>
+      <button class="report-filter-pill" data-period="all">All Time</button>
+    </div>
+
+    <p class="muted" id="invSubtitle" style="margin-top:10px;"></p>
+
+    <div class="stats-row" id="invSummary"></div>
+    <div id="invResults" class="list-box"></div>
   </section>
 
   <!-- ================= SCREEN: CASH REGISTER / TILL ================= -->
