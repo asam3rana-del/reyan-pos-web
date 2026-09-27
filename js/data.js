@@ -64,7 +64,7 @@ async function tombstoneDelete(collectionName, id) {
 // before using a pulled row. zakat_years/zakat_payments/cash_register never get
 // tombstoned (no delete flow exists for them on either side), so their reads
 // don't need this.
-function aliveDocs(snap) {
+export function aliveDocs(snap) {
   return snap.docs.filter(d => d.data()._deleted !== true);
 }
 

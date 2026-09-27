@@ -17,6 +17,8 @@ import { initPartiesScreen, refreshPartiesList } from "./parties.js";
 import { initPartyReportsScreen, renderPartyReportsList } from "./partyReports.js";
 import { initReportsScreens, renderDayBook, renderPnl, renderBalanceSheet } from "./reports.js";
 import { initStockScreens, renderStockScreen } from "./stock.js";
+import { initRateComparisonScreen, refreshRateComparisonScreen } from "./rateComparison.js";
+import { initInventoryInsightsScreen, refreshInventoryInsightsScreen } from "./inventoryInsights.js";
 import { initCashScreen, refreshCashScreen } from "./cash.js";
 import { initCashRegisterScreen, refreshCashRegisterScreen } from "./cashRegister.js";
 import { initShellLedgerScreen, refreshShellLedgerScreen } from "./shellLedger.js";
@@ -27,6 +29,8 @@ import { initRemindersScreen, renderReminders } from "./reminders.js";
 import { initPaymentsReportScreen, renderPaymentsReport } from "./paymentsReport.js";
 import { initZakatScreen, renderZakatScreen } from "./zakat.js";
 import { initAuditLogScreen, renderAuditLog } from "./auditLog.js";
+import { initTheme } from "./theme.js";
+import { initAppLockSettingsScreen, initAppLockGuard } from "./appLock.js";
 import { showToast } from "./ui.js";
 
 // ---------- Role-based screen access (mirrors the Android app's Phase 4
@@ -87,6 +91,8 @@ function renderScreen(name) {
   if (name === "saleHistory") renderSaleHistory();
   if (name === "products") refreshProductsScreen();
   if (name === "stock") renderStockScreen();
+  if (name === "rateComparison") refreshRateComparisonScreen();
+  if (name === "inventoryInsights") refreshInventoryInsightsScreen();
   if (name === "parties") refreshPartiesList();
   if (name === "partyReports") renderPartyReportsList();
   if (name === "cash") refreshCashScreen();
@@ -190,6 +196,7 @@ function wireShopInfoOnlySave() {
 
 async function boot() {
   window.__appBooted = true; // tells index.html's diagnostic banner the module graph loaded
+  initTheme();
   wireNav();
   wireDrawer();
   initReportsScreens();
@@ -310,8 +317,15 @@ function enterApp(session) {
   initCashRegisterScreen();
   initShellLedgerScreen();
   initExpensesScreen();
+  initRateComparisonScreen();
+  initInventoryInsightsScreen();
   if (session.role === "admin") { initStaffUsersScreen(); initAppSettingsScreen(); }
   initDashboard({ onQuickSale: () => { showScreen("sale"); focusQuickSale(); }, role: session.role });
+
+  // App Lock: device-local, so wired for every role (not just admin) — a
+  // cashier's own device is exactly the kind of thing this protects.
+  initAppLockSettingsScreen();
+  initAppLockGuard();
 
   showScreen("dashboard", { replace: true });
 }
