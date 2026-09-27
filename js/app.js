@@ -101,8 +101,38 @@ export function showScreen(name) {
 
 function wireNav() {
   document.querySelectorAll("[data-screen]").forEach(elm => {
-    elm.addEventListener("click", () => showScreen(elm.dataset.screen));
+    elm.addEventListener("click", () => {
+      showScreen(elm.dataset.screen);
+      closeDrawer();
+    });
   });
+}
+
+// ---------- Side drawer (mirrors Android's hamburger drawer open/close +
+// expandable Parties/Sale/Purchase/Cash & Bank/Settings groups) ----------
+function openDrawer() {
+  document.getElementById("mainNav").classList.add("open");
+  document.getElementById("navBackdrop").classList.remove("hidden");
+}
+function closeDrawer() {
+  document.getElementById("mainNav").classList.remove("open");
+  document.getElementById("navBackdrop").classList.add("hidden");
+}
+function wireDrawer() {
+  document.getElementById("btnNavToggle").addEventListener("click", () => {
+    const nav = document.getElementById("mainNav");
+    nav.classList.contains("open") ? closeDrawer() : openDrawer();
+  });
+  document.getElementById("navBackdrop").addEventListener("click", closeDrawer);
+  document.querySelectorAll(".nav-group-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      btn.parentElement.classList.toggle("open");
+    });
+  });
+  // Auto-expand whichever group contains the screen a role-restricted nav
+  // click landed on isn't needed here (showScreen already un-hides the
+  // right section) — but do auto-open the group a screen belongs to on
+  // load, so e.g. opening Setup via a deep link doesn't hide its own toggle.
 }
 
 // Independent of the Setup screen's "Connect" flow (which re-runs the whole
@@ -129,6 +159,7 @@ function wireShopInfoOnlySave() {
 async function boot() {
   window.__appBooted = true; // tells index.html's diagnostic banner the module graph loaded
   wireNav();
+  wireDrawer();
   initReportsScreens();
   initStockScreens();
   initRemindersScreen();
@@ -183,6 +214,10 @@ function enterApp(session) {
   // Purchase/Purchase History: admin-only, matching PurchaseActivity.kt.
   document.querySelector('#mainNav .nav-btn[data-screen="purchase"]').classList.toggle("hidden", session.role !== "admin");
   document.querySelector('#mainNav .nav-btn[data-screen="purchaseHistory"]').classList.toggle("hidden", session.role !== "admin");
+  // Dashboard's Purchase quick-card: same admin-only gate as the nav button above
+  // (PurchaseActivity.kt is admin-only) — a cashier shouldn't see a card that just
+  // bounces them with a "not allowed" toast.
+  document.getElementById("quickPurchaseCard").classList.toggle("hidden", session.role !== "admin");
   // Reports (P&L + Balance Sheet): admin or manager, matching ReportsActivity.kt/BalanceSheetActivity.kt.
   document.querySelector('#mainNav .nav-btn[data-screen="reports"]').classList.toggle("hidden", !(session.role === "admin" || session.role === "manager"));
   // Zakat: admin or manager, matching ZakatActivity.kt's own role check.
