@@ -102,8 +102,21 @@ function initPnlBalanceSheetTabs() {
     });
   });
 
-  switchReportsTab("pnl");
+  // Set up the initial tab's visual state ONLY here — do NOT call
+  // renderPnl()/renderBalanceSheet() (a Firestore query) yet. This function
+  // runs at page boot, before login/ensureSignedIn() has finished, so db()
+  // is still null at this point; calling switchReportsTab("pnl") here used
+  // to throw "Expected first argument to collection() to be a
+  // CollectionReference..." as an unhandled promise rejection on every cold
+  // start (permanently pinning index.html's red diagnostic banner, since it
+  // never auto-clears). app.js's renderScreen() "reports" branch already
+  // re-renders whichever tab is active every time the Reports screen is
+  // actually opened post-login, so nothing is lost by skipping the fetch here.
   setPnlRange("today");
+  el("tabPnl").classList.add("active");
+  el("tabBalanceSheet").classList.remove("active");
+  el("pnlTab").classList.remove("hidden");
+  el("balanceSheetTab").classList.add("hidden");
 }
 
 function switchReportsTab(tab) {
