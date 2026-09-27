@@ -50,7 +50,16 @@ async function refreshRegisterCard() {
     return;
   }
 
-  const { cashIn, cashOut } = await loadTodayCashTotals();
+  // This call was previously unguarded — a failure here escaped straight
+  // through the Promise.all() in refreshDashboard() as an unhandled
+  // rejection (refreshDashboard() itself is fire-and-forget from
+  // app.js's showScreen(), so nothing upstream would have caught it either).
+  let cashIn = 0, cashOut = 0;
+  try {
+    ({ cashIn, cashOut } = await loadTodayCashTotals());
+  } catch (e) {
+    console.warn("refreshRegisterCard: loadTodayCashTotals failed", e);
+  }
   const expected = (reg.openingCash || 0) + cashIn - cashOut;
   card.classList.add("stat-teal");
   el("statRegisterLabel").textContent = "Register — Open";
@@ -70,7 +79,7 @@ function refreshLowStockBadge() {
 }
 
 // ---------- 3. Shell Ledger — total owed stat ----------
-function refreshShellOwedStat() {
+export function refreshShellOwedStat() {
   const card = el("statShellOwedCard");
   if (!card) return;
   const total = shellCustomers.reduce((s, c) => s + (c.shellsOwed || 0), 0);
@@ -134,13 +143,20 @@ async function refreshRecentActivity() {
 }
 
 export async function refreshDashboard() {
-  const { totalSale, totalProfit } = await loadTodayStats();
-  document.getElementById("statTodaySale").textContent = money(totalSale);
-  document.getElementById("statTodayProfit").textContent = money(totalProfit);
+  try {
+    const { totalSale, totalProfit } = await loadTodayStats();
+    document.getElementById("statTodaySale").textContent = money(totalSale);
+    document.getElementById("statTodayProfit").textContent = money(totalProfit);
 
-  const { youllGet, youllGive } = await loadDuesSummary();
-  document.getElementById("statYoullGet").textContent = money(youllGet);
-  document.getElementById("statYoullGive").textContent = money(youllGive);
+    const { youllGet, youllGive } = await loadDuesSummary();
+    document.getElementById("statYoullGet").textContent = money(youllGet);
+    document.getElementById("statYoullGive").textContent = money(youllGive);
+  } catch (e) {
+    // app.js's showScreen() calls refreshDashboard() without awaiting or
+    // catching it, so a throw here would otherwise surface as a generic
+    // unhandled-rejection banner with no indication of which stat failed.
+    console.warn("refreshDashboard: today's stats / dues summary failed", e);
+  }
 
   refreshLowStockBadge();
   refreshShellOwedStat();
@@ -150,7 +166,10 @@ export async function refreshDashboard() {
   // elements are already display:none via CSS, but skip fetching their data
   // entirely too, rather than just leaving it unseen.
   if (dashboardRole === "admin" || dashboardRole === "manager") {
-    await Promise.all([refreshRegisterCard(), refreshOverdueCard(), refreshRecentActivity()]);
+    // allSettled, not all: one card's fetch failing must not stop the other
+    // two from finishing (each already has its own internal try/catch too —
+    // this is a second layer of defense, not a substitute for those).
+    await Promise.allSettled([refreshRegisterCard(), refreshOverdueCard(), refreshRecentActivity()]);
   }
 }
 

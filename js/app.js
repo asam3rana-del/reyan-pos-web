@@ -1,13 +1,13 @@
 import { isConfigured, ensureSignedIn, branchId } from "./firebase-init.js";
 import {
   startProductListener, startCustomerListener, startSupplierListener, startUserListener,
-  startCategoryListener, startUnitListener
+  startCategoryListener, startUnitListener, startShellCustomerListener
 } from "./data.js";
 import { initSetupScreen } from "./setup.js";
 import { getShopInfo, saveShopInfo } from "./shop.js";
 import { getSession, clearSession } from "./auth.js";
 import { initLoginScreen } from "./login.js";
-import { refreshDashboard, initDashboard } from "./dashboard.js";
+import { refreshDashboard, initDashboard, refreshShellOwedStat } from "./dashboard.js";
 import { initSaleScreen, focusQuickSale, refreshSaleCustomerList } from "./sale.js";
 import { initSaleHistoryScreen, renderSaleHistory } from "./saleHistory.js";
 import { initPurchaseScreen, refreshPurchaseSupplierList, enterPurchaseEditMode } from "./purchase.js";
@@ -184,6 +184,10 @@ async function startApp() {
     await ensureSignedIn();
   } catch (e) {
     console.error("Sign-in failed", e);
+    // Previously silent — the app proceeded straight into enterApp() anyway,
+    // so every Firestore read on Dashboard (and everywhere else) would fail
+    // with no visible indication why. Now at least surfaced as a toast.
+    showToast("Cloud se connect nahi ho saka — internet ya branch config check karein");
   }
 
   const session = getSession();
@@ -248,6 +252,10 @@ function enterApp(session) {
   startUserListener(() => { renderStaffUsersList(); });
   startCategoryListener(() => { refreshProductsScreen(); });
   startUnitListener(() => { refreshProductsScreen(); });
+  // Was never wired anywhere before this — the Shell Ledger dashboard stat
+  // (dashboard.js's refreshShellOwedStat, reads the shellCustomers[] cache)
+  // would otherwise always read an empty array and stay stuck at 0.
+  startShellCustomerListener(() => { refreshShellOwedStat(); });
 
   initSaleScreen();
   initSaleHistoryScreen();

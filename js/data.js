@@ -1146,30 +1146,48 @@ export async function loadRecentCashTransactions(limitCount = 50) {
 // this scale, and keeps this read-only feed simple. ----------
 export async function loadRecentActivity(limitCount = 10) {
   const bId = branchId();
-  const [salesSnap, purchasesSnap, cashSnap] = await Promise.all([
+  if (!db()) return []; // Firestore not ready yet — fail quiet, dashboard just shows "no activity" rather than an unhandled rejection.
+
+  // Promise.allSettled, not Promise.all: one of these three collections
+  // having a transient read failure (network blip, a stale/invalid ref)
+  // must not blank out the other two, and must never surface as an
+  // unhandled rejection — every branch below is read defensively.
+  const [salesRes, purchasesRes, cashRes] = await Promise.allSettled([
     getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
     getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
     getDocs(query(collection(db(), "cash_transactions"), where("branchId", "==", bId)))
   ]);
 
   const events = [];
-  aliveDocs(salesSnap).forEach(d => {
-    const s = d.data();
-    if (s.status !== "active") return;
-    events.push({ type: "sale", label: `Sale #${s.invoice}`, amount: s.total || 0, createdAt: s.createdAt });
-  });
-  aliveDocs(purchasesSnap).forEach(d => {
-    const p = d.data();
-    events.push({ type: "purchase", label: `Purchase #${p.billNo}`, amount: p.total || 0, createdAt: p.createdAt });
-  });
-  aliveDocs(cashSnap).forEach(d => {
-    const c = d.data();
-    events.push({
-      type: c.type === "IN" ? "cashIn" : "cashOut",
-      label: c.reason || (c.type === "IN" ? "Cash In" : "Cash Out"),
-      amount: c.amount || 0, createdAt: c.createdAt
+  if (salesRes.status === "fulfilled") {
+    aliveDocs(salesRes.value).forEach(d => {
+      const s = d.data();
+      if (s.status !== "active") return;
+      events.push({ type: "sale", label: `Sale #${s.invoice}`, amount: s.total || 0, createdAt: s.createdAt });
     });
-  });
+  } else {
+    console.warn("loadRecentActivity: sales read failed", salesRes.reason);
+  }
+  if (purchasesRes.status === "fulfilled") {
+    aliveDocs(purchasesRes.value).forEach(d => {
+      const p = d.data();
+      events.push({ type: "purchase", label: `Purchase #${p.billNo}`, amount: p.total || 0, createdAt: p.createdAt });
+    });
+  } else {
+    console.warn("loadRecentActivity: purchases read failed", purchasesRes.reason);
+  }
+  if (cashRes.status === "fulfilled") {
+    aliveDocs(cashRes.value).forEach(d => {
+      const c = d.data();
+      events.push({
+        type: c.type === "IN" ? "cashIn" : "cashOut",
+        label: c.reason || (c.type === "IN" ? "Cash In" : "Cash Out"),
+        amount: c.amount || 0, createdAt: c.createdAt
+      });
+    });
+  } else {
+    console.warn("loadRecentActivity: cash_transactions read failed", cashRes.reason);
+  }
 
   return events.sort((a, b) => b.createdAt - a.createdAt).slice(0, limitCount);
 }
