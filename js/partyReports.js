@@ -10,7 +10,7 @@
 // PartyReportsActivity reads from Room.
 // ================================================================
 
-import { customers, suppliers, loadPartyTransactions } from "./data.js";
+import { customers, suppliers, loadPartyTransactions, loadPartyPayments } from "./data.js";
 import { showModal, closeModal } from "./ui.js";
 
 let showingCustomers = true;
@@ -43,7 +43,11 @@ export function renderPartyReportsList() {
     return;
   }
   list.forEach(p => {
-    const closing = (p.openingBalance || 0) + (p.balance || 0);
+    // `p.balance` already STARTS at openingBalance (see saveCustomer/saveSupplier
+    // in data.js) and is only ever adjusted from there by sale/purchase/payment
+    // increments — it is already the closing balance. Adding openingBalance
+    // again here used to double-count it and inflate every figure on this screen.
+    const closing = p.balance || 0;
     // Same sign convention as PartyReportsActivity.kt's partyRow(): a positive
     // customer balance means they owe us (red); a positive supplier balance
     // means WE owe them (also red, from our point of view) — either way,
@@ -108,9 +112,20 @@ async function showItemReport(party) {
 // ================= 2) Ledger (Dr/Cr, running balance) =================
 async function showLedger(party) {
   showModal("Ledger — " + party.name, "<p class='muted'>Loading…</p>");
+  const partyType = showingCustomers ? "customer" : "supplier";
   const opening = party.openingBalance || 0;
-  const rows = (await loadPartyTransactions(party.id, showingCustomers ? "customer" : "supplier"))
-    .sort((a, b) => a.createdAt - b.createdAt);
+  // Merge bills AND manual Record Payment entries into one dated timeline —
+  // a bill-time `paid` amount is a Credit same as a later manual payment is,
+  // just logged from a different place. Skipping payments here used to make
+  // this report's closing balance drift from the party's real `balance`.
+  const [bills, payments] = await Promise.all([
+    loadPartyTransactions(party.id, partyType),
+    loadPartyPayments(party.id, partyType)
+  ]);
+  const rows = [
+    ...bills.map(r => ({ createdAt: r.createdAt, debit: r.total, credit: r.paid })),
+    ...payments.map(p => ({ createdAt: p.createdAt, debit: 0, credit: p.amount }))
+  ].sort((a, b) => a.createdAt - b.createdAt);
 
   let running = opening;
   let html = `
@@ -124,8 +139,8 @@ async function showLedger(party) {
 
   if (!rows.length) html += `<p class="muted">Koi transaction nahi.</p>`;
   rows.forEach(r => {
-    running += (r.total - r.paid);
-    html += ledgerRowHtml(fmtDate(r.createdAt), r.total, r.paid, running, false);
+    running += (r.debit - r.credit);
+    html += ledgerRowHtml(fmtDate(r.createdAt), r.debit, r.credit, running, false);
   });
 
   html += `<div class="stmt-divider"></div>`;
@@ -181,19 +196,28 @@ async function showPaymentHistory(party) {
 // ================= 4) Statement (running balance) =================
 async function showStatement(party) {
   showModal("Statement — " + party.name, "<p class='muted'>Loading…</p>");
+  const partyType = showingCustomers ? "customer" : "supplier";
   const opening = party.openingBalance || 0;
-  const rows = (await loadPartyTransactions(party.id, showingCustomers ? "customer" : "supplier"))
-    .sort((a, b) => a.createdAt - b.createdAt);
+  // Same merge as showLedger() above — manual Record Payment entries must
+  // count against the running balance too, not just each bill's own `paid`.
+  const [bills, payments] = await Promise.all([
+    loadPartyTransactions(party.id, partyType),
+    loadPartyPayments(party.id, partyType)
+  ]);
+  const rows = [
+    ...bills.map(r => ({ createdAt: r.createdAt, label: money(r.total), delta: r.total - r.paid })),
+    ...payments.map(p => ({ createdAt: p.createdAt, label: "Payment: " + money(p.amount), delta: -p.amount }))
+  ].sort((a, b) => a.createdAt - b.createdAt);
 
   let running = opening;
   let html = rowHtml("<b>Opening Balance</b>", money(opening)) + `<div class="stmt-divider"></div>`;
   if (!rows.length) html += `<p class="muted">Koi transaction nahi.</p>`;
   rows.forEach(r => {
-    running += (r.total - r.paid);
+    running += r.delta;
     const isGive = showingCustomers ? running < 0 : running > 0;
     html += `
       <div style="padding:10px 0;">
-        <div class="stmt-row"><span>${fmtDate(r.createdAt)}</span><span class="muted">${money(r.total)}</span></div>
+        <div class="stmt-row"><span>${fmtDate(r.createdAt)}</span><span class="muted">${r.label}</span></div>
         <div style="font-weight:800; color:${isGive ? "var(--red)" : "var(--teal-fg)"}; font-size:12px;">Balance: ${money(running)}</div>
       </div>
     `;
