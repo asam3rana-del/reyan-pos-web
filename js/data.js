@@ -226,12 +226,26 @@ export async function deleteUnit(name) {
   await tombstoneDelete("units", name);
 }
 
+// Some old customer/supplier docs (pre-dating this schema, or from a past
+// import) have `name` literally set to the text "undefined" or "null"
+// instead of actually missing the field — every screen that does
+// `p.name || "fallback"` fails to catch that, since a non-empty string is
+// truthy, so it renders the literal word. Cleaning it once here, at the
+// point the docs enter the app, means every screen that reads `customers`/
+// `suppliers` (Parties, Party Reports, purchase/sale name-search, receipts)
+// gets a real empty string instead — one fix instead of one per screen.
+function sanitizePartyName(raw) {
+  const t = String(raw || "").trim();
+  if (!t || t.toLowerCase() === "undefined" || t.toLowerCase() === "null") return "";
+  return t;
+}
+
 export function startCustomerListener(onChange) {
   if (_customersUnsub) _customersUnsub();
   if (!dbReadyOrWarn("startCustomerListener")) return;
   const q = query(collection(db(), "customers"), where("branchId", "==", branchId()));
   _customersUnsub = onSnapshot(q, (snap) => {
-    customers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
+    customers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id, name: sanitizePartyName(d.data().name) }));
     onChange && onChange(customers);
   });
 }
@@ -241,7 +255,7 @@ export function startSupplierListener(onChange) {
   if (!dbReadyOrWarn("startSupplierListener")) return;
   const q = query(collection(db(), "suppliers"), where("branchId", "==", branchId()));
   _suppliersUnsub = onSnapshot(q, (snap) => {
-    suppliers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
+    suppliers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id, name: sanitizePartyName(d.data().name) }));
     onChange && onChange(suppliers);
   });
 }
@@ -1100,7 +1114,12 @@ export async function loadTodayStats() {
 // payments instead of trusting `balance` — so this now does the same thing,
 // bulk-loaded (one query per collection, grouped in memory) rather than
 // per-party, to keep it cheap for a Dashboard-load with many parties.
-export async function loadDuesSummary() {
+// Shared by loadDuesSummary() (Dashboard totals) AND now by Parties/partyReports
+// (per-party balance) — one bulk read, reused for both, so the two screens can
+// never show different numbers again. Returns:
+//   - balances: Map<`${partyType}:${partyId}`, trueRunningBalance>  (opening + all deltas)
+//   - custSnap/suppSnap: the live docs, so callers don't need a second read
+async function computeTrueBalances() {
   const bId = branchId();
   const [custSnap, suppSnap, saleSnap, purchSnap, paySnap] = await Promise.all([
     getDocs(query(collection(db(), "customers"), where("branchId", "==", bId))),
@@ -1131,18 +1150,43 @@ export async function loadDuesSummary() {
     addDelta(p.partyType, p.partyId, -(p.amount || 0));
   });
 
-  let youllGet = 0, youllGive = 0;
+  const balances = new Map();
   aliveDocs(custSnap).forEach(d => {
     const c = d.data();
-    const running = (c.openingBalance || 0) + (deltasByParty.get(`customer:${d.id}`) || 0);
-    if (running > 0) youllGet += running;
+    balances.set(`customer:${d.id}`, (c.openingBalance || 0) + (deltasByParty.get(`customer:${d.id}`) || 0));
   });
   aliveDocs(suppSnap).forEach(d => {
     const s = d.data();
-    const running = (s.openingBalance || 0) + (deltasByParty.get(`supplier:${d.id}`) || 0);
+    balances.set(`supplier:${d.id}`, (s.openingBalance || 0) + (deltasByParty.get(`supplier:${d.id}`) || 0));
+  });
+  return { balances, custSnap, suppSnap };
+}
+
+export async function loadDuesSummary() {
+  const { balances, custSnap, suppSnap } = await computeTrueBalances();
+  let youllGet = 0, youllGive = 0;
+  aliveDocs(custSnap).forEach(d => {
+    const running = balances.get(`customer:${d.id}`) || 0;
+    if (running > 0) youllGet += running;
+  });
+  aliveDocs(suppSnap).forEach(d => {
+    const running = balances.get(`supplier:${d.id}`) || 0;
     if (running > 0) youllGive += running;
   });
   return { youllGet, youllGive };
+}
+
+// True per-party running balances (opening balance + every sale/purchase/payment
+// delta), for screens that list every customer/supplier's balance (Parties,
+// Party Reports). The raw stored `balance` field is increment()-only and can
+// drift from reality if a bill is ever deleted/returned/edited without a
+// perfectly matching reversal (see loadDuesSummary's note above) — this
+// recomputes from the source documents instead, so what the user sees always
+// matches the Dashboard's You'll Get / You'll Give totals.
+// Returns a Map<`${partyType}:${partyId}`, trueBalance>.
+export async function loadAllTrueBalances() {
+  const { balances } = await computeTrueBalances();
+  return balances;
 }
 
 // ---------- Day book ----------

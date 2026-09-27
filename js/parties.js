@@ -1,6 +1,6 @@
 import {
   customers, suppliers, saveCustomer, saveSupplier, deleteCustomer, deleteSupplier,
-  loadPartyTransactions, loadPartyPayments, savePartyPayment
+  loadPartyTransactions, loadPartyPayments, savePartyPayment, loadAllTrueBalances
 } from "./data.js";
 import { showToast } from "./ui.js";
 import { printSaleReceipt, printPurchaseReceipt } from "./print.js";
@@ -8,6 +8,12 @@ import { printSaleReceipt, printPurchaseReceipt } from "./print.js";
 let activeType = "customer";  // "customer" | "supplier"
 let editingId = null;         // doc id being edited, or null for "add new"
 let viewingParty = null;      // the party object currently open in detail view, or null
+
+// Cache of true (recomputed) balances — see loadAllTrueBalances() in data.js.
+// Keyed by `${partyType}:${partyId}`. Refreshed each time the list/detail is
+// rendered so a just-recorded payment or a stock/purchase edit elsewhere is
+// reflected without a full page reload.
+let trueBalances = new Map();
 
 function el(id) { return document.getElementById(id); }
 
@@ -17,6 +23,29 @@ function money(n) {
 
 function currentList() {
   return activeType === "customer" ? customers : suppliers;
+}
+
+// A party's real balance: prefer the freshly recomputed value, fall back to
+// the raw stored `balance` field only if we haven't loaded true balances yet
+// (e.g. first paint before the async fetch resolves).
+function trueBalance(p) {
+  const key = `${activeType}:${p.id}`;
+  return trueBalances.has(key) ? trueBalances.get(key) : (p.balance || 0);
+}
+
+// Some party docs (from old imports) have `name` literally set to the text
+// "undefined" or "null" rather than actually missing the field — plain
+// `p.name || fallback` doesn't catch that, since a non-empty string is
+// truthy. This treats those the same as a missing name.
+function cleanName(v) {
+  if (v === null || v === undefined) return "";
+  const t = String(v).trim();
+  if (!t || t.toLowerCase() === "undefined" || t.toLowerCase() === "null") return "";
+  return t;
+}
+
+function displayName(p) {
+  return cleanName(p.name) || cleanName(p.partyName) || cleanName(p.customerName) || cleanName(p.supplierName) || "(Naam missing)";
 }
 
 function resetForm() {
@@ -43,7 +72,7 @@ function switchType(type) {
 function startEdit(party) {
   editingId = party.id;
   el("partyFormTitle").textContent = "Edit " + (activeType === "customer" ? "Customer" : "Supplier");
-  el("partyName").value = party.name || "";
+  el("partyName").value = cleanName(party.name);
   el("partyPhone").value = party.phone || "";
   el("partyOpeningBalance").value = party.openingBalance || 0;
   el("partyCreditLimit").value = party.creditLimit || 0;
@@ -54,8 +83,7 @@ function startEdit(party) {
 
 async function handleDelete(party) {
   const label = activeType === "customer" ? "customer" : "supplier";
-  const displayName = party.name || party.partyName || party.customerName || party.supplierName || "is";
-  if (!confirm(`"${displayName}" ${label} ko delete kar dein?`)) return;
+  if (!confirm(`"${displayName(party)}" ${label} ko delete kar dein?`)) return;
   try {
     if (activeType === "customer") await deleteCustomer(party.id);
     else await deleteSupplier(party.id);
@@ -67,13 +95,13 @@ async function handleDelete(party) {
   }
 }
 
-function renderList() {
+async function renderList() {
   const box = el("partyList");
   const q = (el("partySearch").value || "").trim().toLowerCase();
   const list = currentList()
-    .filter(p => !q || (p.name || "").toLowerCase().includes(q) || (p.phone || "").includes(q))
+    .filter(p => !q || displayName(p).toLowerCase().includes(q) || (p.phone || "").includes(q))
     .slice()
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    .sort((a, b) => displayName(a).localeCompare(displayName(b)));
 
   box.innerHTML = "";
   if (!list.length) {
@@ -81,15 +109,19 @@ function renderList() {
     return;
   }
 
+  // Show the last-known figures immediately (from the raw `balance` field /
+  // cache), then refresh with the recomputed true balances once they load —
+  // avoids a blank flash while staying accurate.
+  try { trueBalances = await loadAllTrueBalances(); } catch (e) { /* keep stale cache, still usable */ }
+
   list.forEach(p => {
-    const balance = p.balance || 0;
+    const balance = trueBalance(p);
     const owesLabel = activeType === "customer" ? "You'll get" : "You'll give";
-    const displayName = p.name || p.partyName || p.customerName || p.supplierName || "(Naam missing)";
     const div = document.createElement("div");
     div.className = "card row-between party-row";
     div.innerHTML = `
       <div>
-        <div><b>${displayName}</b></div>
+        <div><b>${displayName(p)}</b></div>
         <div class="muted">${p.phone || "—"}</div>
       </div>
       <div style="text-align:right">
@@ -133,15 +165,17 @@ function renderList() {
 // billed-items edit/delete dialog (out of scope for this round).
 // ================================================================
 
-function openPartyDetail(party) {
+async function openPartyDetail(party) {
   viewingParty = party;
   el("partyListView").classList.add("hidden");
   el("partyDetailView").classList.remove("hidden");
   el("partyPaymentCard").classList.add("hidden");
   el("btnPartyRecordPayment").textContent = activeType === "customer" ? "💰 Record Receive Payment" : "💰 Record Make Payment";
   el("partyPaymentTitle").textContent = activeType === "customer" ? "Receive Payment" : "Make Payment";
-  renderPartyDetailHeader();
+  renderPartyDetailHeader(); // paints instantly with whatever's cached
   renderPartyTransactions();
+  try { trueBalances = await loadAllTrueBalances(); } catch (e) { /* keep stale cache */ }
+  if (viewingParty === party) renderPartyDetailHeader(); // refresh once the true balance is in
 }
 
 function closePartyDetail() {
@@ -153,11 +187,10 @@ function closePartyDetail() {
 
 function renderPartyDetailHeader() {
   const p = viewingParty;
-  const balance = p.balance || 0;
+  const balance = trueBalance(p);
   const owesLabel = activeType === "customer" ? "You'll get" : "You'll give";
-  const displayName = p.name || p.partyName || p.customerName || p.supplierName || "(Naam missing)";
   el("partyDetailHeader").innerHTML = `
-    <div class="card-title">${displayName}</div>
+    <div class="card-title">${displayName(p)}</div>
     <div class="muted">${p.phone || "—"}</div>
     <div style="margin-top:8px; font-weight:800; font-size:16px; color:${balance > 0 ? "var(--teal-fg)" : "var(--text-muted)"};">
       ${money(Math.abs(balance))} ${balance !== 0 ? "· " + owesLabel : ""}
@@ -213,8 +246,8 @@ function partyTxRow(entry) {
     </div>
   `;
   div.querySelector(".party-tx-print").addEventListener("click", () => {
-    if (isSale) printSaleReceipt(entry, viewingParty.name);
-    else printPurchaseReceipt(entry, viewingParty.name);
+    if (isSale) printSaleReceipt(entry, displayName(viewingParty));
+    else printPurchaseReceipt(entry, displayName(viewingParty));
   });
   return div;
 }
@@ -240,7 +273,7 @@ function initPartyPaymentForm() {
     el("btnSavePayment").disabled = true;
     try {
       await savePartyPayment({
-        partyId: viewingParty.id, partyType: activeType, partyName: viewingParty.name,
+        partyId: viewingParty.id, partyType: activeType, partyName: displayName(viewingParty),
         amount, method, note
       });
       showToast("Payment save ho gayi");

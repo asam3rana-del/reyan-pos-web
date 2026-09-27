@@ -10,12 +10,24 @@
 // PartyReportsActivity reads from Room.
 // ================================================================
 
-import { customers, suppliers, loadPartyTransactions, loadPartyPayments } from "./data.js";
+import { customers, suppliers, loadPartyTransactions, loadPartyPayments, loadAllTrueBalances } from "./data.js";
 import { showModal, closeModal } from "./ui.js";
 
 let showingCustomers = true;
+// See parties.js — same cache of recomputed true balances, refreshed each
+// time the list renders, so this screen never disagrees with Dashboard/Parties.
+let trueBalances = new Map();
 
 function el(id) { return document.getElementById(id); }
+
+function displayName(p) {
+  return (p.name || "").trim() || "(Naam missing)";
+}
+
+function trueBalance(p) {
+  const key = `${showingCustomers ? "customer" : "supplier"}:${p.id}`;
+  return trueBalances.has(key) ? trueBalances.get(key) : (p.balance || 0);
+}
 
 function money(n) {
   return "Rs " + (n || 0).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -34,20 +46,23 @@ function currentList() {
 }
 
 // ================= Party list (tap a party -> report menu) =================
-export function renderPartyReportsList() {
+export async function renderPartyReportsList() {
   const box = el("partyReportsList");
-  const list = currentList().slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const list = currentList().slice().sort((a, b) => displayName(a).localeCompare(displayName(b)));
   box.innerHTML = "";
   if (!list.length) {
     box.innerHTML = `<p class="muted">Koi ${showingCustomers ? "customer" : "supplier"} nahi hai.</p>`;
     return;
   }
+
+  // Paint instantly from cache, then refresh with recomputed true balances —
+  // the raw stored `balance` field is increment()-only and can drift from
+  // reality (see data.js's loadAllTrueBalances() for why), which is what
+  // made this screen's figures disagree with the Dashboard.
+  try { trueBalances = await loadAllTrueBalances(); } catch (e) { /* keep stale cache */ }
+
   list.forEach(p => {
-    // `p.balance` already STARTS at openingBalance (see saveCustomer/saveSupplier
-    // in data.js) and is only ever adjusted from there by sale/purchase/payment
-    // increments — it is already the closing balance. Adding openingBalance
-    // again here used to double-count it and inflate every figure on this screen.
-    const closing = p.balance || 0;
+    const closing = trueBalance(p);
     // Same sign convention as PartyReportsActivity.kt's partyRow(): a positive
     // customer balance means they owe us (red); a positive supplier balance
     // means WE owe them (also red, from our point of view) — either way,
@@ -59,7 +74,7 @@ export function renderPartyReportsList() {
     div.className = "card row-between";
     div.style.cursor = "pointer";
     div.innerHTML = `
-      <div><b>${p.name}</b><div class="muted">${p.phone || "—"}</div></div>
+      <div><b>${displayName(p)}</b><div class="muted">${p.phone || "—"}</div></div>
       <div style="font-weight:800; color:${isGive ? "var(--red)" : "var(--teal-fg)"};">${money(closing)}</div>
     `;
     div.addEventListener("click", () => showReportMenu(p));
@@ -81,7 +96,7 @@ function showReportMenu(party) {
   const body = entries.map(([label], i) =>
     `<div class="modal-menu-row" data-i="${i}"><span>${label}</span><span>›</span></div>`
   ).join("");
-  const container = showModal(party.name, body);
+  const container = showModal(displayName(party), body);
   entries.forEach(([, fn], i) => {
     container.querySelector(`[data-i="${i}"]`).addEventListener("click", () => fn(party));
   });
@@ -89,7 +104,7 @@ function showReportMenu(party) {
 
 // ================= 1) Party Report by Item =================
 async function showItemReport(party) {
-  showModal("Item Report — " + party.name, "<p class='muted'>Loading…</p>");
+  showModal("Item Report — " + displayName(party), "<p class='muted'>Loading…</p>");
   const rows = await loadPartyTransactions(party.id, showingCustomers ? "customer" : "supplier");
   const map = new Map();
   rows.forEach(doc => {
@@ -106,12 +121,12 @@ async function showItemReport(party) {
   const body = items.length
     ? items.map(i => rowHtml(i.product, `${i.qty} × — ${money(i.amount)}`)).join("")
     : `<p class="muted">Koi item nahi mila.</p>`;
-  showModal("Item Report — " + party.name, body);
+  showModal("Item Report — " + displayName(party), body);
 }
 
 // ================= 2) Ledger (Dr/Cr, running balance) =================
 async function showLedger(party) {
-  showModal("Ledger — " + party.name, "<p class='muted'>Loading…</p>");
+  showModal("Ledger — " + displayName(party), "<p class='muted'>Loading…</p>");
   const partyType = showingCustomers ? "customer" : "supplier";
   const opening = party.openingBalance || 0;
   // Merge bills AND manual Record Payment entries into one dated timeline —
@@ -145,7 +160,7 @@ async function showLedger(party) {
 
   html += `<div class="stmt-divider"></div>`;
   html += rowHtml("<b>Closing Balance</b>", `<b style="color:${running > 0 ? "var(--red)" : "var(--teal-fg)"}">${money(running)}</b>`);
-  showModal("Ledger — " + party.name, html);
+  showModal("Ledger — " + displayName(party), html);
 }
 
 function ledgerRowHtml(dateLabel, dr, cr, balance, bold) {
@@ -166,7 +181,7 @@ function ledgerRowHtml(dateLabel, dr, cr, balance, bold) {
 // dedicated installment table, so each sale/purchase's own `paid` amount
 // (recorded at bill time) is read as one payment entry dated at createdAt.
 async function showPaymentHistory(party) {
-  showModal("Payment History — " + party.name, "<p class='muted'>Loading…</p>");
+  showModal("Payment History — " + displayName(party), "<p class='muted'>Loading…</p>");
   const rows = await loadPartyTransactions(party.id, showingCustomers ? "customer" : "supplier");
   const against = showingCustomers ? "Against Sale" : "Against Purchase";
   const payments = rows.filter(r => (r.paid || 0) > 0)
@@ -190,12 +205,12 @@ async function showPaymentHistory(party) {
     html += `<div class="stmt-divider"></div>`;
     html += rowHtml(`<b>${showingCustomers ? "Total Received" : "Total Paid"}</b>`, `<b style="color:var(--teal-fg)">${money(total)}</b>`);
   }
-  showModal("Payment History — " + party.name, html);
+  showModal("Payment History — " + displayName(party), html);
 }
 
 // ================= 4) Statement (running balance) =================
 async function showStatement(party) {
-  showModal("Statement — " + party.name, "<p class='muted'>Loading…</p>");
+  showModal("Statement — " + displayName(party), "<p class='muted'>Loading…</p>");
   const partyType = showingCustomers ? "customer" : "supplier";
   const opening = party.openingBalance || 0;
   // Same merge as showLedger() above — manual Record Payment entries must
@@ -225,13 +240,13 @@ async function showStatement(party) {
   html += `<div class="stmt-divider"></div>`;
   const closingIsGive = showingCustomers ? running < 0 : running > 0;
   html += rowHtml("<b>Closing Balance</b>", `<b style="color:${closingIsGive ? "var(--red)" : "var(--teal-fg)"}">${money(running)}</b>`);
-  showModal("Statement — " + party.name, html);
+  showModal("Statement — " + displayName(party), html);
 }
 
 // ================= 5) Sale/Purchase by Party =================
 async function showTransactions(party) {
   const title = showingCustomers ? "Sales" : "Purchases";
-  showModal(title + " — " + party.name, "<p class='muted'>Loading…</p>");
+  showModal(title + " — " + displayName(party), "<p class='muted'>Loading…</p>");
   const rows = (await loadPartyTransactions(party.id, showingCustomers ? "customer" : "supplier"))
     .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -243,13 +258,13 @@ async function showTransactions(party) {
     html = rows.map(r => { total += r.total; return rowHtml(fmtDateTime(r.createdAt), money(r.total)); }).join("");
     html += `<div class="stmt-divider"></div>` + rowHtml("<b>Total</b>", `<b>${money(total)}</b>`);
   }
-  showModal(title + " — " + party.name, html);
+  showModal(title + " — " + displayName(party), html);
 }
 
 // ================= 6) Profit & Loss (customer) / Purchase Summary (supplier) =================
 async function showPartyPL(party) {
   const title = showingCustomers ? "Profit & Loss" : "Purchase Summary";
-  showModal(title + " — " + party.name, "<p class='muted'>Loading…</p>");
+  showModal(title + " — " + displayName(party), "<p class='muted'>Loading…</p>");
   const rows = await loadPartyTransactions(party.id, showingCustomers ? "customer" : "supplier");
 
   let html;
@@ -275,7 +290,7 @@ async function showPartyPL(party) {
       + rowHtml("<b>Outstanding Due</b>", `<b style="color:${due > 0 ? "var(--red)" : "var(--teal-fg)"}">${money(due)}</b>`)
       + `<p class="muted" style="margin-top:8px;">Note: Suppliers don't have their own 'profit' — this is a purchase summary.</p>`;
   }
-  showModal(title + " — " + party.name, html);
+  showModal(title + " — " + displayName(party), html);
 }
 
 function rowHtml(left, right) {
