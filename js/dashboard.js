@@ -1,8 +1,10 @@
 import {
   loadTodayStats, loadDuesSummary, loadCashRegister, loadTodayCashTotals,
-  lowStockProducts, shellCustomers, loadDueReminders, loadRecentActivity
+  lowStockProducts, shellCustomers, loadDueReminders, loadRecentActivity,
+  customers, suppliers, loadAllTrueBalances
 } from "./data.js";
 import { selectOverdueTab } from "./reminders.js";
+import { showModal, closeModal } from "./ui.js";
 
 function money(n) {
   return "Rs " + (n || 0).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -142,6 +144,62 @@ async function refreshRecentActivity() {
   });
 }
 
+// ---------- 6. Dues breakdown — double-tap "You'll get" / "You'll give" ----------
+// Same true-balance recompute as loadDuesSummary()/Parties (see data.js's
+// loadAllTrueBalances) so this list's figures always match the dashboard
+// total and the Parties screen — never the raw, driftable `balance` field.
+let onOpenPartyCb = null;
+
+async function showDuesBreakdown(kind) {
+  // kind: "get" (customers who owe us) | "give" (suppliers we owe)
+  const isCustomers = kind === "get";
+  const title = isCustomers ? "You'll get — Customers" : "You'll give — Suppliers";
+  showModal(title, "<p class='muted'>Loading…</p>");
+
+  let balances;
+  try {
+    balances = await loadAllTrueBalances();
+  } catch (e) {
+    showModal(title, `<p class="muted">Error: ${e.message}</p>`);
+    return;
+  }
+
+  const partyType = isCustomers ? "customer" : "supplier";
+  const list = (isCustomers ? customers : suppliers)
+    .map(p => ({ p, balance: balances.get(`${partyType}:${p.id}`) || 0 }))
+    .filter(x => x.balance > 0)
+    .sort((a, b) => b.balance - a.balance);
+
+  if (!list.length) {
+    showModal(title, `<p class="muted">Koi ${isCustomers ? "receivable" : "payable"} nahi hai.</p>`);
+    return;
+  }
+
+  const rows = list.map(({ p, balance }) => `
+    <div class="modal-menu-row party-dues-row" data-id="${p.id}">
+      <span>
+        <b>${(p.name || "").trim() || "(Naam missing)"}</b>
+        ${p.phone ? `<div class="muted">${p.phone}</div>` : ""}
+      </span>
+      <span style="font-weight:800;">${money(balance)}</span>
+    </div>
+  `).join("");
+  const total = list.reduce((s, x) => s + x.balance, 0);
+  const body = rows + `
+    <div class="modal-menu-row" style="border-top:2px solid var(--border,#ddd);">
+      <span><b>Total</b></span><span style="font-weight:800;">${money(total)}</span>
+    </div>
+  `;
+  const container = showModal(title, body);
+  container.querySelectorAll(".party-dues-row").forEach(row => {
+    row.style.cursor = "pointer";
+    row.addEventListener("click", () => {
+      closeModal();
+      if (onOpenPartyCb) onOpenPartyCb(row.dataset.id, isCustomers);
+    });
+  });
+}
+
 export async function refreshDashboard() {
   try {
     const { totalSale, totalProfit } = await loadTodayStats();
@@ -173,9 +231,16 @@ export async function refreshDashboard() {
   }
 }
 
-export function initDashboard({ onQuickSale, role }) {
+export function initDashboard({ onQuickSale, onOpenParty, role }) {
   dashboardRole = role;
+  onOpenPartyCb = onOpenParty || null;
   document.getElementById("btnQuickSale").addEventListener("click", onQuickSale);
+  // Double-tap (dblclick) "You'll get" / "You'll give" — full breakdown of
+  // every customer/supplier with dues, not just the summed total.
+  const getCard = document.getElementById("statYoullGetCard");
+  const giveCard = document.getElementById("statYoullGiveCard");
+  if (getCard) getCard.addEventListener("dblclick", () => showDuesBreakdown("get"));
+  if (giveCard) giveCard.addEventListener("dblclick", () => showDuesBreakdown("give"));
   // Land on the Overdue tab specifically, even if Reminders was last left on
   // a different one. Navigation itself is handled by app.js's generic
   // wireNav() via this card's static data-screen="reminders" (index.html) —

@@ -13,7 +13,7 @@ import { initSaleHistoryScreen, renderSaleHistory } from "./saleHistory.js";
 import { initPurchaseScreen, refreshPurchaseSupplierList, enterPurchaseEditMode } from "./purchase.js";
 import { initPurchaseHistoryScreen, renderPurchaseHistory } from "./purchaseHistory.js";
 import { initProductsScreen, refreshProductsScreen } from "./products.js";
-import { initPartiesScreen, refreshPartiesList } from "./parties.js";
+import { initPartiesScreen, refreshPartiesList, openPartyById } from "./parties.js";
 import { initPartyReportsScreen, renderPartyReportsList } from "./partyReports.js";
 import { initReportsScreens, renderDayBook, renderPnl, renderBalanceSheet } from "./reports.js";
 import { initStockScreens, renderStockScreen } from "./stock.js";
@@ -320,7 +320,11 @@ function enterApp(session) {
   initRateComparisonScreen();
   initInventoryInsightsScreen();
   if (session.role === "admin") { initStaffUsersScreen(); initAppSettingsScreen(); }
-  initDashboard({ onQuickSale: () => { showScreen("sale"); focusQuickSale(); }, role: session.role });
+  initDashboard({
+    onQuickSale: () => { showScreen("sale"); focusQuickSale(); },
+    onOpenParty: (id, isCustomer) => { showScreen("parties"); openPartyById(id, isCustomer); },
+    role: session.role
+  });
 
   // App Lock: device-local, so wired for every role (not just admin) — a
   // cashier's own device is exactly the kind of thing this protects.
