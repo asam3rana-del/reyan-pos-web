@@ -1089,13 +1089,59 @@ export async function loadTodayStats() {
   return { totalSale, totalProfit };
 }
 
+// Dashboard You'll Get / You'll Give totals — this used to sum each party's
+// raw stored `balance` field directly. That field is increment()-only (see
+// saveSale()/savePurchase()/savePartyPayment() above) and drifts from reality
+// whenever a bill is deleted/returned/edited without a perfectly matching
+// reversal — exactly the class of bug already found and fixed on the Android
+// side (PartyRepository.trueCustomerBalance()/trueSupplierBalance()). The
+// webapp's own Ledger/Statement reports (partyReports.js) never had this
+// problem because they recompute a running balance from the actual bills +
+// payments instead of trusting `balance` — so this now does the same thing,
+// bulk-loaded (one query per collection, grouped in memory) rather than
+// per-party, to keep it cheap for a Dashboard-load with many parties.
 export async function loadDuesSummary() {
   const bId = branchId();
-  const custSnap = await getDocs(query(collection(db(), "customers"), where("branchId", "==", bId)));
-  const suppSnap = await getDocs(query(collection(db(), "suppliers"), where("branchId", "==", bId)));
+  const [custSnap, suppSnap, saleSnap, purchSnap, paySnap] = await Promise.all([
+    getDocs(query(collection(db(), "customers"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "suppliers"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
+    getDocs(query(collection(db(), "payments"), where("branchId", "==", bId)))
+  ]);
+
+  // delta per bill/payment: same convention as showStatement()'s `delta` —
+  // a bill adds (total - paid) to what's owed, a payment subtracts its amount.
+  const deltasByParty = new Map(); // key: `${partyType}:${partyId}` -> summed delta
+  function addDelta(partyType, partyId, delta) {
+    if (!partyId) return;
+    const key = `${partyType}:${partyId}`;
+    deltasByParty.set(key, (deltasByParty.get(key) || 0) + delta);
+  }
+  aliveDocs(saleSnap).forEach(d => {
+    const s = d.data();
+    addDelta("customer", s.customerServerId, (s.total || 0) - (s.paid || 0));
+  });
+  aliveDocs(purchSnap).forEach(d => {
+    const p = d.data();
+    addDelta("supplier", p.supplierServerId, (p.total || 0) - (p.paid || 0));
+  });
+  aliveDocs(paySnap).forEach(d => {
+    const p = d.data();
+    addDelta(p.partyType, p.partyId, -(p.amount || 0));
+  });
+
   let youllGet = 0, youllGive = 0;
-  aliveDocs(custSnap).forEach(d => { const b = d.data().balance || 0; if (b > 0) youllGet += b; });
-  aliveDocs(suppSnap).forEach(d => { const b = d.data().balance || 0; if (b > 0) youllGive += b; });
+  aliveDocs(custSnap).forEach(d => {
+    const c = d.data();
+    const running = (c.openingBalance || 0) + (deltasByParty.get(`customer:${d.id}`) || 0);
+    if (running > 0) youllGet += running;
+  });
+  aliveDocs(suppSnap).forEach(d => {
+    const s = d.data();
+    const running = (s.openingBalance || 0) + (deltasByParty.get(`supplier:${d.id}`) || 0);
+    if (running > 0) youllGive += running;
+  });
   return { youllGet, youllGive };
 }
 
