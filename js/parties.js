@@ -54,7 +54,8 @@ function startEdit(party) {
 
 async function handleDelete(party) {
   const label = activeType === "customer" ? "customer" : "supplier";
-  if (!confirm(`"${party.name}" ${label} ko delete kar dein?`)) return;
+  const displayName = party.name || party.partyName || party.customerName || party.supplierName || "is";
+  if (!confirm(`"${displayName}" ${label} ko delete kar dein?`)) return;
   try {
     if (activeType === "customer") await deleteCustomer(party.id);
     else await deleteSupplier(party.id);
@@ -83,11 +84,12 @@ function renderList() {
   list.forEach(p => {
     const balance = p.balance || 0;
     const owesLabel = activeType === "customer" ? "You'll get" : "You'll give";
+    const displayName = p.name || p.partyName || p.customerName || p.supplierName || "(Naam missing)";
     const div = document.createElement("div");
     div.className = "card row-between party-row";
     div.innerHTML = `
       <div>
-        <div><b>${p.name}</b></div>
+        <div><b>${displayName}</b></div>
         <div class="muted">${p.phone || "—"}</div>
       </div>
       <div style="text-align:right">
@@ -153,8 +155,9 @@ function renderPartyDetailHeader() {
   const p = viewingParty;
   const balance = p.balance || 0;
   const owesLabel = activeType === "customer" ? "You'll get" : "You'll give";
+  const displayName = p.name || p.partyName || p.customerName || p.supplierName || "(Naam missing)";
   el("partyDetailHeader").innerHTML = `
-    <div class="card-title">${p.name}</div>
+    <div class="card-title">${displayName}</div>
     <div class="muted">${p.phone || "—"}</div>
     <div style="margin-top:8px; font-weight:800; font-size:16px; color:${balance > 0 ? "var(--teal-fg)" : "var(--text-muted)"};">
       ${money(Math.abs(balance))} ${balance !== 0 ? "· " + owesLabel : ""}

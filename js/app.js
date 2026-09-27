@@ -184,10 +184,15 @@ async function startApp() {
     await ensureSignedIn();
   } catch (e) {
     console.error("Sign-in failed", e);
-    // Previously silent — the app proceeded straight into enterApp() anyway,
-    // so every Firestore read on Dashboard (and everywhere else) would fail
-    // with no visible indication why. Now at least surfaced as a toast.
+    // Previously this only showed a toast and then fell through into
+    // enterApp() anyway — with `db()` still null, every Firestore call
+    // (collection(db(), ...)) threw "Expected first argument to collection()
+    // to be a CollectionReference..." over and over. Now we stop here and
+    // let the person retry instead of limping into a broken screen.
     showToast("Cloud se connect nahi ho saka — internet ya branch config check karein");
+    const retry = confirm("Connect nahi ho saka. Dobara koshish karein?");
+    if (retry) { await startApp(); }
+    return;
   }
 
   const session = getSession();
