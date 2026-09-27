@@ -1174,11 +1174,23 @@
   <!-- Diagnostic: proves plain JS runs even if nothing else does, and catches
        module load/network failures (e.g. Firebase SDK failing to fetch on a
        slow connection) that would otherwise fail completely silently. -->
-  <div id="diagBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:10px;font-size:13px;text-align:center;"></div>
+  <div id="diagBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:10px 34px 10px 10px;font-size:13px;text-align:center;"></div>
   <script>
     (function () {
       var b = document.getElementById('diagBanner');
-      function show(msg) { b.style.display = 'block'; b.textContent = msg; }
+      // Dismiss (×) button: a transient/already-recovered-from error used to
+      // stay pinned on screen forever (no auto-hide anywhere), which reads as
+      // "still broken" even after the app has carried on working fine. Built
+      // fresh each time show() runs since textContent below wipes it out.
+      function addCloseBtn() {
+        var x = document.createElement('span');
+        x.textContent = '✕';
+        x.style.cssText = 'position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-weight:bold;';
+        x.addEventListener('click', function () { b.style.display = 'none'; });
+        b.style.position = 'fixed';
+        b.appendChild(x);
+      }
+      function show(msg) { b.style.display = 'block'; b.textContent = msg; addCloseBtn(); }
       window.addEventListener('error', function (e) {
         show('JS error: ' + (e.message || e.error || 'unknown') + (e.filename ? (' @ ' + e.filename) : ''));
       });
