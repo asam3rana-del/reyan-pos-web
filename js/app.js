@@ -61,10 +61,15 @@ function roleAccessMessage(screenName) {
     : "Sirf Admin/Manager is screen ko access kar sakte hain";
 }
 
-export function showScreen(name) {
+// Internal: actually swaps which .screen is visible + refreshes that screen's
+// data. Does NOT touch browser history — showScreen() (below) is the public
+// entry point every nav click uses, and it's the one that pushes a history
+// entry. popstate (Back button) calls this directly with push=false so we
+// don't create a NEW forward-history entry while going backward.
+function renderScreen(name) {
   if (!roleAllowed(name)) {
     showToast(roleAccessMessage(name));
-    return;
+    return false;
   }
 
   document.querySelectorAll(".screen").forEach(s => s.classList.add("hidden"));
@@ -97,7 +102,34 @@ export function showScreen(name) {
     const bsActive = document.getElementById("tabBalanceSheet")?.classList.contains("active");
     if (bsActive) renderBalanceSheet(); else renderPnl();
   }
+  return true;
 }
+
+// Public entry point — every nav click (data-screen buttons, quick cards,
+// stat cards) calls this. Pushes a real browser-history entry per screen so
+// the phone/tab's physical Back button moves BACKWARD THROUGH THE APP
+// instead of leaving the page entirely. Before this, showScreen() only ever
+// toggled a `hidden` CSS class — Back had no in-app history to land on, so
+// it fell straight out of the page, which looked like "the whole app closes
+// and restarts" (session/login state lost, boot() runs again from scratch).
+export function showScreen(name, opts) {
+  const ok = renderScreen(name);
+  if (!ok) return;
+  const replace = opts && opts.replace;
+  const current = history.state && history.state.screen;
+  if (replace) {
+    history.replaceState({ screen: name }, "", "#" + name);
+  } else if (current !== name) {
+    history.pushState({ screen: name }, "", "#" + name);
+  }
+}
+
+// Back/Forward button handler — swap screens in place, no new history entry
+// (pushing here would double up and make Back feel like it does nothing).
+window.addEventListener("popstate", (e) => {
+  const name = (e.state && e.state.screen) || "dashboard";
+  renderScreen(name);
+});
 
 function wireNav() {
   document.querySelectorAll("[data-screen]").forEach(elm => {
@@ -170,7 +202,7 @@ async function boot() {
 
   if (!isConfigured()) {
     initSetupScreen(startApp);
-    showScreen("setup");
+    showScreen("setup", { replace: true });
     return;
   }
   await startApp();
@@ -202,7 +234,7 @@ async function startApp() {
   }
 
   await initLoginScreen(() => enterApp(getSession()));
-  showScreen("login");
+  showScreen("login", { replace: true });
 }
 
 // Runs exactly once per successful login — wires up every real screen and
@@ -281,7 +313,7 @@ function enterApp(session) {
   if (session.role === "admin") { initStaffUsersScreen(); initAppSettingsScreen(); }
   initDashboard({ onQuickSale: () => { showScreen("sale"); focusQuickSale(); }, role: session.role });
 
-  showScreen("dashboard");
+  showScreen("dashboard", { replace: true });
 }
 
 boot();
