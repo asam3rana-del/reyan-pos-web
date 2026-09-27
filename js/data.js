@@ -1151,9 +1151,19 @@ async function computeTrueBalances() {
   });
 
   const balances = new Map();
+  // FIX (Stuck Balance not showing on web): the Android app has a per-customer
+  // `stuckBalance` field (Database.kt) — an old, frozen amount a customer owes
+  // that doesn't move with day-to-day sales/payments, separate from
+  // openingBalance/balance. It syncs to Firestore fine on the Android side
+  // (SyncApi.kt/SyncQueueHelper.kt both push and pull it), but this function
+  // never added it into the true balance, so it was invisible everywhere on
+  // the web app (Dashboard, Parties, Party Reports, Dues breakdown) even
+  // though the number was sitting right there in Firestore. Suppliers have no
+  // such field (see Database.kt's Supplier entity), so this only applies to
+  // customers.
   aliveDocs(custSnap).forEach(d => {
     const c = d.data();
-    balances.set(`customer:${d.id}`, (c.openingBalance || 0) + (deltasByParty.get(`customer:${d.id}`) || 0));
+    balances.set(`customer:${d.id}`, (c.openingBalance || 0) + (c.stuckBalance || 0) + (deltasByParty.get(`customer:${d.id}`) || 0));
   });
   aliveDocs(suppSnap).forEach(d => {
     const s = d.data();
