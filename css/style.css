@@ -21,6 +21,31 @@
   --red-bg: #FCEBEB;    --red-fg: #D32F4A;
 }
 
+/* ---- Dark palette — matches ThemeManager.kt DARK exactly, so switching
+   theme on web looks like the same app as Android's dark mode. Toggled by
+   theme.js setting data-theme="dark" on <html> (set as early as possible,
+   see the inline head script, to avoid a light-mode flash on load). ---- */
+html[data-theme="dark"] {
+  --bg: #0B0F1E;
+  --card: #161B2E;
+  --navy: #0D1B4C;
+  --teal: #14B8A6;
+  --red: #F0666B;
+  --text-dark: #EAEFF7;
+  --text-muted: #8B95A8;
+  --border: #262C42;
+  --amber: #FF9E33;
+  --field-fill: #161D2C;
+
+  --purple-bg: #2C2F7A; --purple-fg: #C7CBF6;
+  --coral-bg: #6E2E10;  --coral-fg: #F6C4A9;
+  --blue-bg: #0E3A78;   --blue-fg: #BAD3F8;
+  --pink-bg: #72243E;   --pink-fg: #F4C0D1;
+  --teal-bg: #0A4A34;   --teal-fg: #8FE7C0;
+  --amber-bg: #5C3A05;  --amber-fg: #FFC26A;
+  --red-bg: #4A1416;    --red-fg: #F0666B;
+}
+
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -374,6 +399,44 @@ label {
   background: var(--navy); color: #fff; padding: 12px 22px; border-radius: 10px;
   font-size: 13.5px; z-index: 999;
 }
+
+/* ---------- Theme toggle (floating, visible pre- and post-login) ---------- */
+.theme-toggle-btn {
+  position: fixed; top: 14px; right: 16px; z-index: 998;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--card);
+  color: var(--text-dark); font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.theme-toggle-btn:hover { background: var(--field-fill); }
+
+/* ---------- App Lock overlay — full-screen PIN gate, sits above everything
+   else (including the modal) so it can interrupt any screen the app was on
+   when it re-locked. ---------- */
+.app-lock-overlay {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000; padding: 20px;
+}
+.app-lock-box {
+  background: var(--card); border-radius: 18px; padding: 32px 28px;
+  max-width: 340px; width: 100%; text-align: center;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+}
+.app-lock-icon { font-size: 34px; margin-bottom: 6px; }
+.app-lock-box h2 { margin: 4px 0 4px; }
+.app-lock-pin-input {
+  text-align: center; letter-spacing: 10px; font-size: 22px; font-weight: 700;
+  margin-top: 16px;
+}
+.app-lock-error { color: var(--red); font-size: 13px; min-height: 18px; margin-top: 8px; }
+.app-lock-forgot {
+  display: block; margin-top: 14px; font-size: 12.5px; color: var(--text-muted);
+  text-decoration: underline; background: none; border: none; cursor: pointer;
+}
+.pin-set-row { display: flex; gap: 10px; }
+.pin-set-row input { text-align: center; letter-spacing: 6px; }
 
 /* ---------- Responsive: below tablet width, stack Sale panes ---------- */
 @media (max-width: 900px) {
