@@ -1246,11 +1246,15 @@ export async function loadRecentActivity(limitCount = 10) {
   if (cashRes.status === "fulfilled") {
     aliveDocs(cashRes.value).forEach(d => {
       const c = d.data();
-      // Skip the generic "Purchase" cash-out row: savePurchase()/its edit path
-      // already write a cash_transactions doc for the paid amount, and that
-      // same purchase is already surfaced above from the `purchases`
-      // collection — including this one too doubles it in the feed.
-      if (c.reason === "Purchase") return;
+      // Skip the generic "Purchase"/"Sale" cash rows: savePurchase()/saveSale()
+      // (and Android's equivalents) already write a cash_transactions doc for
+      // the paid amount on top of the purchase/sale record itself, and that
+      // same purchase/sale is already surfaced above from the `purchases`/
+      // `sales` collection — including this one too doubles it in the feed
+      // (e.g. a Rs 4,160 sale paid partly in cash showed up twice: once as
+      // "Sale #..." for the full 4,160, again as a bare "Sale" cash-in row for
+      // just the cash portion).
+      if (c.reason === "Purchase" || c.reason === "Sale") return;
       events.push({
         type: c.type === "IN" ? "cashIn" : "cashOut",
         label: c.reason || (c.type === "IN" ? "Cash In" : "Cash Out"),
