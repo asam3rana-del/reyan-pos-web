@@ -19,40 +19,83 @@
   <header id="appHeader" class="app-header hidden">
     <div class="app-header-top">
       <div class="brand">
+        <button id="btnNavToggle" class="hamburger-btn" aria-label="Menu">☰</button>
         <div class="brand-badge">IK</div>
         <div>
           <div class="brand-title">IBTISAAM Kiryana Store</div>
           <div class="brand-sub" id="branchLabel">Branch: —</div>
         </div>
       </div>
-      <nav id="mainNav" class="main-nav">
-        <button data-screen="dashboard" class="nav-btn active">Dashboard</button>
-        <button data-screen="sale" class="nav-btn">Sale</button>
-        <button data-screen="saleHistory" class="nav-btn">Sale History</button>
-        <button data-screen="purchase" class="nav-btn">Purchase</button>
-        <button data-screen="purchaseHistory" class="nav-btn">Purchase History</button>
-        <button data-screen="products" class="nav-btn">Items</button>
-        <button data-screen="dayBook" class="nav-btn">Day Book</button>
-        <button data-screen="stock" class="nav-btn">Stock</button>
-        <button data-screen="parties" class="nav-btn">Parties</button>
-        <button data-screen="partyReports" class="nav-btn">Party Reports</button>
-        <button data-screen="reminders" class="nav-btn">Due Reminders</button>
-        <button data-screen="cash" class="nav-btn">Cash</button>
-        <button data-screen="cashRegister" class="nav-btn">Till / Register</button>
-        <button data-screen="shellLedger" class="nav-btn">Shell Ledger</button>
-        <button data-screen="expenses" class="nav-btn">Expenses</button>
-        <button data-screen="reports" class="nav-btn">Reports</button>
-        <button data-screen="paymentsReport" class="nav-btn">Payments Report</button>
-        <button data-screen="auditLog" id="navAuditLogBtn" class="nav-btn">Audit Log</button>
-        <button data-screen="zakat" id="navZakatBtn" class="nav-btn">Zakat</button>
-        <button data-screen="setup" id="navSetupBtn" class="nav-btn nav-btn-muted">⚙ Setup</button>
-      </nav>
       <div id="userBadge" class="user-badge hidden">
         <span id="userBadgeText">—</span>
         <button id="btnLogout" class="btn-logout">Logout</button>
       </div>
     </div>
   </header>
+
+  <!-- Drawer backdrop — tap to close, same as Android's drawer scrim -->
+  <div id="navBackdrop" class="nav-backdrop hidden"></div>
+
+  <!-- ================= SIDE DRAWER (mirrors the Android app's hamburger
+       drawer: Parties/Sale/Purchase/Cash & Bank each expand to reveal their
+       sub-screens, same grouping as MainActivity.kt's nav_menu.xml) ================= -->
+  <nav id="mainNav" class="main-nav">
+    <button data-screen="dashboard" class="nav-btn active">🏠 Dashboard</button>
+
+    <div class="nav-group">
+      <button class="nav-group-toggle" data-group="parties">👥 Parties <span class="nav-caret">▾</span></button>
+      <div class="nav-group-items">
+        <button data-screen="parties" class="nav-btn">Customers &amp; Suppliers</button>
+        <button data-screen="partyReports" class="nav-btn">Party Reports</button>
+        <button data-screen="reminders" class="nav-btn">Due Reminders</button>
+      </div>
+    </div>
+
+    <button data-screen="products" class="nav-btn">📦 Items</button>
+
+    <div class="nav-group">
+      <button class="nav-group-toggle" data-group="sale">🧾 Sale <span class="nav-caret">▾</span></button>
+      <div class="nav-group-items">
+        <button data-screen="sale" class="nav-btn">New Sale</button>
+        <button data-screen="saleHistory" class="nav-btn">Sale History</button>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-toggle" data-group="purchase">🛒 Purchase <span class="nav-caret">▾</span></button>
+      <div class="nav-group-items">
+        <button data-screen="purchase" class="nav-btn">New Purchase</button>
+        <button data-screen="purchaseHistory" class="nav-btn">Purchase History</button>
+      </div>
+    </div>
+
+    <button data-screen="expenses" class="nav-btn">💼 Expense</button>
+
+    <div class="nav-group">
+      <button class="nav-group-toggle" data-group="cashbank">🏦 Cash &amp; Bank <span class="nav-caret">▾</span></button>
+      <div class="nav-group-items">
+        <button data-screen="cash" class="nav-btn">Cash</button>
+        <button data-screen="cashRegister" class="nav-btn">Till / Register</button>
+        <button data-screen="paymentsReport" class="nav-btn">Payments Report</button>
+      </div>
+    </div>
+
+    <button data-screen="shellLedger" class="nav-btn">🧴 Shell Ledger</button>
+    <button data-screen="stock" class="nav-btn">📊 Stock</button>
+    <button data-screen="dayBook" class="nav-btn">📖 Day Book</button>
+    <button data-screen="reports" class="nav-btn">📈 Reports</button>
+    <button data-screen="zakat" id="navZakatBtn" class="nav-btn">🕌 Zakat</button>
+    <button data-screen="auditLog" id="navAuditLogBtn" class="nav-btn">📜 Audit Log</button>
+
+    <div class="nav-group">
+      <button class="nav-group-toggle" data-group="settings">⚙ Settings <span class="nav-caret">▾</span></button>
+      <div class="nav-group-items">
+        <button data-screen="setup" id="navSetupBtn" class="nav-btn">Cloud Sync Setup</button>
+      </div>
+    </div>
+  </nav>
+
+
 
   <!-- ================= SCREEN: STAFF LOGIN ================= -->
   <section id="screen-login" class="screen hidden">
@@ -275,10 +318,15 @@
         <div class="quick-title">Till / Register</div>
         <div class="quick-sub">Open/close today's till</div>
       </button>
-      <button class="quick-card quick-amber" data-screen="shellLedger">
-        <div class="quick-icon">🧴</div>
-        <div class="quick-title">Shell Ledger</div>
-        <div class="quick-sub" id="shellLedgerSub">Empty bottle/crate deposits</div>
+      <button class="quick-card quick-amber" id="quickPurchaseCard" data-screen="purchase">
+        <div class="quick-icon">📦</div>
+        <div class="quick-title">Purchase</div>
+        <div class="quick-sub">Record a new purchase</div>
+      </button>
+      <button class="quick-card quick-coral" data-screen="parties">
+        <div class="quick-icon">👥</div>
+        <div class="quick-title">Parties</div>
+        <div class="quick-sub">Customers &amp; suppliers</div>
       </button>
     </div>
 
