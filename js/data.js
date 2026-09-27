@@ -156,8 +156,23 @@ export let units = [];      // [{name}] — doc id === name, mirrors UnitType.kt
 let _productsUnsub = null, _customersUnsub = null, _suppliersUnsub = null, _usersUnsub = null;
 let _categoriesUnsub = null, _unitsUnsub = null;
 
+// Guard used by every startXListener() below: if db() isn't ready yet (sign-in
+// still pending/failed), collection(db(), ...) throws synchronously with
+// Firestore's own generic "Expected first argument to collection() to be a
+// CollectionReference..." message — with nothing upstream catching it, that
+// became an unhandled promise rejection surfaced by index.html's diagnostic
+// banner. A listener starting too early should just skip quietly (the caller
+// re-starts listeners once login succeeds, by which point db() is ready)
+// instead of crashing the whole screen.
+function dbReadyOrWarn(label) {
+  if (db()) return true;
+  console.warn(`${label}: Firestore db not ready yet, skipping listener start`);
+  return false;
+}
+
 export function startProductListener(onChange) {
   if (_productsUnsub) _productsUnsub();
+  if (!dbReadyOrWarn("startProductListener")) return;
   const q = query(collection(db(), "products"), where("branchId", "==", branchId()));
   _productsUnsub = onSnapshot(q, (snap) => {
     products = aliveDocs(snap).map(d => ({ ...d.data(), barcode: d.id }));
@@ -171,6 +186,7 @@ export function startProductListener(onChange) {
 
 export function startCategoryListener(onChange) {
   if (_categoriesUnsub) _categoriesUnsub();
+  if (!dbReadyOrWarn("startCategoryListener")) return;
   const q = query(collection(db(), "categories"), where("branchId", "==", branchId()));
   _categoriesUnsub = onSnapshot(q, (snap) => {
     categories = aliveDocs(snap).map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
@@ -180,6 +196,7 @@ export function startCategoryListener(onChange) {
 
 export function startUnitListener(onChange) {
   if (_unitsUnsub) _unitsUnsub();
+  if (!dbReadyOrWarn("startUnitListener")) return;
   const q = query(collection(db(), "units"), where("branchId", "==", branchId()));
   _unitsUnsub = onSnapshot(q, (snap) => {
     units = aliveDocs(snap).map(d => d.data().name || d.id).sort((a, b) => a.localeCompare(b));
@@ -211,6 +228,7 @@ export async function deleteUnit(name) {
 
 export function startCustomerListener(onChange) {
   if (_customersUnsub) _customersUnsub();
+  if (!dbReadyOrWarn("startCustomerListener")) return;
   const q = query(collection(db(), "customers"), where("branchId", "==", branchId()));
   _customersUnsub = onSnapshot(q, (snap) => {
     customers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
@@ -220,6 +238,7 @@ export function startCustomerListener(onChange) {
 
 export function startSupplierListener(onChange) {
   if (_suppliersUnsub) _suppliersUnsub();
+  if (!dbReadyOrWarn("startSupplierListener")) return;
   const q = query(collection(db(), "suppliers"), where("branchId", "==", branchId()));
   _suppliersUnsub = onSnapshot(q, (snap) => {
     suppliers = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
@@ -233,6 +252,7 @@ export function startSupplierListener(onChange) {
 
 export function startUserListener(onChange) {
   if (_usersUnsub) _usersUnsub();
+  if (!dbReadyOrWarn("startUserListener")) return;
   const q = query(collection(db(), "users"), where("branchId", "==", branchId()));
   _usersUnsub = onSnapshot(q, (snap) => {
     users = aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
@@ -243,6 +263,7 @@ export function startUserListener(onChange) {
 /** One-off (non-listener) fetch — used at Login-screen boot, before startUserListener
  *  has necessarily delivered its first snapshot yet. */
 export async function fetchUsersOnce() {
+  if (!db()) throw new Error("Cloud se connect nahi ho saka — internet ya branch config check karein");
   const bId = branchId();
   const snap = await getDocs(query(collection(db(), "users"), where("branchId", "==", bId)));
   return aliveDocs(snap).map(d => ({ ...d.data(), id: d.id }));
@@ -1635,6 +1656,7 @@ let _appSettingsUnsub = null;
 
 export function startAppSettingsListener(onChange) {
   if (_appSettingsUnsub) _appSettingsUnsub();
+  if (!dbReadyOrWarn("startAppSettingsListener")) return;
   const q = query(collection(db(), "app_settings"), where("branchId", "==", branchId()));
   _appSettingsUnsub = onSnapshot(q, (snap) => {
     appSettings = {};
@@ -1705,6 +1727,7 @@ let _shellCustomersUnsub = null;
 
 export function startShellCustomerListener(onChange) {
   if (_shellCustomersUnsub) _shellCustomersUnsub();
+  if (!dbReadyOrWarn("startShellCustomerListener")) return;
   const q = query(collection(db(), "shell_customers"), where("branchId", "==", branchId()));
   _shellCustomersUnsub = onSnapshot(q, (snap) => {
     shellCustomers = snap.docs.map(d => ({ ...d.data(), id: d.id }));

@@ -35,7 +35,13 @@ export async function initLoginScreen(onLoggedIn) {
   el("loginError").classList.add("hidden");
   startUserListener(); // keep the cache warm for the rest of the app post-login
 
-  const existingUsers = await fetchUsersOnce();
+  let existingUsers = [];
+  try {
+    existingUsers = await fetchUsersOnce();
+  } catch (e) {
+    console.error("fetchUsersOnce failed", e);
+    showToast("Cloud se connect nahi ho saka — internet ya branch config check karein");
+  }
   showMode(existingUsers.length === 0 ? "createAdmin" : "normal");
 
   // ---------- Create Admin Account (first-ever web/branch login) ----------
