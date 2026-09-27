@@ -405,7 +405,13 @@ export async function savePartyPayment({ partyId, partyType, partyName, amount, 
     + (note ? ` | ${note}` : "");
 
   await setDoc(doc(db(), "payments", id), {
-    serverId: id, reference, partyType, partyId, amount, method: method || "cash", note: note || "",
+    // NEW (cross-device party linkage fix): partyId here is already a stable
+    // Firestore doc id (web app has no separate local/server id split, unlike
+    // Android's Room autoincrement Long). Android's pull-side ONLY resolves the
+    // correct local customer/supplier via partyServerId (see
+    // SyncApi.kt's applyServerChanges() payment branch) — without this, a
+    // payment made here showed up on Android unlinked from any party.
+    serverId: id, reference, partyType, partyId, partyServerId: partyId, amount, method: method || "cash", note: note || "",
     createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
   });
 
@@ -809,8 +815,10 @@ export async function savePurchase({ lines, supplierName, discount, paid, paymen
       const paymentId = ids.payment();
       try {
         await setDoc(doc(db(), "payments", paymentId), {
+          // NEW (cross-device party linkage fix): see savePartyPayment()'s
+          // comment above — Android only resolves the party via partyServerId.
           serverId: paymentId, reference: billNo, partyType: "supplier",
-          partyId: supplier.id, amount: paid, method: paymentMethod,
+          partyId: supplier.id, partyServerId: supplier.id, amount: paid, method: paymentMethod,
           note: "Purchase payment", createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
         });
       } catch (e) {
@@ -1010,8 +1018,10 @@ export async function updatePurchaseBill(billNo, { lines, supplierName, discount
       const paymentId = ids.payment();
       try {
         await setDoc(doc(db(), "payments", paymentId), {
+          // NEW (cross-device party linkage fix): see savePartyPayment()'s
+          // comment above — Android only resolves the party via partyServerId.
           serverId: paymentId, reference: billNo, partyType: "supplier",
-          partyId: supplier.id, amount: paid, method: paymentMethod,
+          partyId: supplier.id, partyServerId: supplier.id, amount: paid, method: paymentMethod,
           note: "Purchase payment (edited)", createdAt: Date.now(), updatedAt: Date.now(), branchId: bId
         });
       } catch (e) {
