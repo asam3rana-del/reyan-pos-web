@@ -1192,6 +1192,11 @@
       }, 6000);
     })();
   </script>
-  <script type="module" src="js/app.js"></script>
+  <!-- Cache-busting version tag: bump this (v1 -> v2 -> ...) every time you
+       push new JS to GitHub. Without it, browsers/home-screen shortcuts can
+       keep serving an old cached copy of app.js (and everything it imports)
+       indefinitely, so a fix that's live on GitHub never actually reaches
+       the phone until the person manually clears their cache. -->
+  <script type="module" src="js/app.js?v=2"></script>
 </body>
 </html>
