@@ -9,6 +9,40 @@
 
 import { products, suppliers, loadPurchaseHistory } from "./data.js";
 import { unitLadder, smallestUnitFactor } from "./firebase-init.js";
+import { getSession } from "./auth.js";
+
+// Purchase / cost information is Admin + Manager only (same as Android's
+// Item Search). Cashier never sees it and the purchase history is never even
+// loaded for them.
+function canSeeCost() {
+  const role = (getSession() || {}).role;
+  return role === "admin" || role === "manager";
+}
+
+function fmtRate(n) {
+  const v = n || 0;
+  return "Rs " + (Number.isInteger(v)
+    ? v.toLocaleString("en-PK")
+    : v.toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+}
+
+// salePrice / wholesalePrice are stored per PRIMARY unit; convert to a tier.
+function rateInTier(product, primaryRate, tier) {
+  const factor = smallestUnitFactor(product);
+  return tier.smallestPerUnit > 0 && factor > 0 ? primaryRate / (factor / tier.smallestPerUnit) : primaryRate;
+}
+
+// Largest tier first: "Ctn Rs 2,880 • Dzn Rs 720 • Pcs Rs 60"
+function tierRateLine(product, primaryRate) {
+  return unitLadder(product).slice().reverse()
+    .map(t => `${t.unit} ${fmtRate(rateInTier(product, primaryRate, t))}`)
+    .join("  •  ");
+}
+
+function matchesQuery(p, q) {
+  const hay = `${p.name || ""} ${p.searchTag || ""}`.toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(t => hay.includes(t));
+}
 
 function el(id) { return document.getElementById(id); }
 
@@ -34,11 +68,37 @@ function renderSuggestions(matches) {
   box.innerHTML = "";
   matches.slice(0, 8).forEach(p => {
     const d = document.createElement("div");
-    d.textContent = p.name;
+    d.innerHTML = `<div><b></b></div><div class="muted" style="font-size:12px;"></div>`;
+    d.querySelector("b").textContent = p.name;
+    d.lastChild.textContent = p.salePrice > 0 ? tierRateLine(p, p.salePrice) : "Sale rate set nahi";
     d.addEventListener("click", () => selectProduct(p));
     box.appendChild(d);
   });
   box.classList.remove("hidden");
+}
+
+function renderSaleRateCard(product) {
+  const box = el("rateCompareSaleCard");
+  box.innerHTML = "";
+  const card = document.createElement("div");
+  card.className = "rate-row is-latest";
+  let html = `<div class="muted" style="font-weight:700; letter-spacing:.5px;">SALE RATE</div>`;
+  if (product.salePrice > 0) {
+    unitLadder(product).slice().reverse().forEach(t => {
+      html += `<div class="row-between" style="align-items:center; padding:2px 0;">
+        <span class="muted" style="font-size:15px;">${t.unit}</span>
+        <span style="font-size:24px; font-weight:800;">${fmtRate(rateInTier(product, product.salePrice, t))}</span>
+      </div>`;
+    });
+  } else {
+    html += `<p class="muted">Is item ka sale rate abhi set nahi hai</p>`;
+  }
+  if (product.wholesalePrice > 0) {
+    html += `<hr style="border:none; border-top:1px solid var(--border, #E3E8EE); margin:10px 0;">
+      <div class="muted" style="font-weight:700;">Wholesale: ${tierRateLine(product, product.wholesalePrice)}</div>`;
+  }
+  card.innerHTML = html;
+  box.appendChild(card);
 }
 
 async function selectProduct(product) {
@@ -47,14 +107,38 @@ async function selectProduct(product) {
   el("rateComparePicker").classList.add("hidden");
   el("rateCompareResult").classList.remove("hidden");
   el("rateCompareProductName").textContent = "📦 " + product.name;
-  el("rateCompareSubtext").textContent = `Rates per ${product.unit} (kisi bhi unit se convert karke)`;
-  el("rateCompareList").innerHTML = "<p class='muted'>Loading purchase history…</p>";
+  renderSaleRateCard(product);
 
+  // Cost section: Admin/Manager only, closed by default, loaded on demand.
+  const costBox = el("rateCompareCostBox");
+  const costBtn = el("btnRateCompareShowCost");
+  const list = el("rateCompareList");
+  list.classList.add("hidden");
+  list.innerHTML = "";
+  costBtn.textContent = "Show cost ▾";
+  if (!canSeeCost()) { costBox.classList.add("hidden"); return; }
+  costBox.classList.remove("hidden");
+  el("rateCompareSubtext").textContent = `Supplier rates per ${product.unit} (kisi bhi unit se convert karke)`;
+}
+
+async function toggleCost() {
+  const list = el("rateCompareList");
+  const btn = el("btnRateCompareShowCost");
+  if (!canSeeCost() || !selectedProduct) return;
+  if (!list.classList.contains("hidden")) {
+    list.classList.add("hidden");
+    btn.textContent = "Show cost ▾";
+    return;
+  }
+  list.classList.remove("hidden");
+  btn.textContent = "Hide cost ▴";
+  list.innerHTML = "<p class='muted'>Loading purchase history…</p>";
+  const product = selectedProduct;
   try {
     if (!cachedPurchases) cachedPurchases = await loadPurchaseHistory();
-    renderComparison(computeRows(product));
+    if (selectedProduct === product) renderComparison(computeRows(product));
   } catch (e) {
-    el("rateCompareList").innerHTML = `<p class="muted">Error: ${e.message}</p>`;
+    list.innerHTML = `<p class="muted">Error: ${e.message}</p>`;
   }
 }
 
@@ -133,9 +217,10 @@ export function initRateComparisonScreen() {
   el("rateCompareSearch").addEventListener("input", () => {
     const q = el("rateCompareSearch").value.trim().toLowerCase();
     if (!q) { el("rateCompareSuggestions").classList.add("hidden"); return; }
-    renderSuggestions(products.filter(p => p.name.toLowerCase().includes(q)));
+    renderSuggestions(products.filter(p => matchesQuery(p, q)));
   });
   el("btnRateCompareChange").addEventListener("click", backToPicker);
+  el("btnRateCompareShowCost").addEventListener("click", toggleCost);
 }
 
 /** Called by app.js whenever the Rate Comparison nav button is pressed —
