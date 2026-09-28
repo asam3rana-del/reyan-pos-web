@@ -112,7 +112,7 @@
 
     <button data-screen="shellLedger" class="nav-btn">🧴 Shell Ledger</button>
     <button data-screen="stock" class="nav-btn">📊 Stock</button>
-    <button data-screen="rateComparison" class="nav-btn">⚖ Rate Comparison</button>
+    <button data-screen="rateComparison" class="nav-btn">⚖ Rate Search</button>
     <button data-screen="inventoryInsights" class="nav-btn">📈 Inventory Insights</button>
     <button data-screen="dayBook" class="nav-btn">📖 Day Book</button>
     <button data-screen="reports" class="nav-btn">📈 Reports</button>
@@ -985,8 +985,8 @@
 
   <!-- ================= SCREEN: RATE COMPARISON ================= -->
   <section id="screen-rateComparison" class="screen hidden">
-    <h1>⚖ Rate Comparison</h1>
-    <p class="muted">Item chunein — dekhein har supplier ne kis rate par diya (purchase history se, rates product ke primary unit par normalize).</p>
+    <h1>⚖ Rate Search</h1>
+    <p class="muted">Item chunein — sale rate (Carton / Dozen / Pcs) foran nazar aa jayega.</p>
 
     <div id="rateComparePicker">
       <input id="rateCompareSearch" type="text" placeholder="Item search karein..." autocomplete="off" />
@@ -998,8 +998,13 @@
         <h3 id="rateCompareProductName" style="margin:0;"></h3>
         <button id="btnRateCompareChange" class="report-filter-pill">✕ Change</button>
       </div>
-      <p class="muted" id="rateCompareSubtext"></p>
-      <div id="rateCompareList" style="margin-top:10px;"></div>
+      <div id="rateCompareSaleCard" style="margin-top:10px;"></div>
+      <!-- Purchase/cost: Admin & Manager only (hidden by rateComparison.js for cashier) -->
+      <div id="rateCompareCostBox" class="hidden" style="margin-top:14px;">
+        <button id="btnRateCompareShowCost" class="report-filter-pill" style="width:100%;">Show cost ▾</button>
+        <p class="muted" id="rateCompareSubtext" style="margin-top:10px;"></p>
+        <div id="rateCompareList" class="hidden" style="margin-top:10px;"></div>
+      </div>
     </div>
   </section>
 
