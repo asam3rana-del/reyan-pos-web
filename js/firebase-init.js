@@ -18,7 +18,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, where, orderBy, onSnapshot, runTransaction, increment
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -94,7 +94,16 @@ export function initFirebase() {
       storageBucket: cfg.storageBucket || undefined
     });
     _auth = getAuth(_app);
-    _db = getFirestore(_app);
+    // FIX (quota): persistent (IndexedDB) cache so the live listeners (products,
+    // customers, suppliers…) resume from the browser's local copy after a page
+    // reload instead of re-downloading everything. Falls back to the plain default
+    // if the browser refuses (private mode, older browser).
+    try {
+      _db = initializeFirestore(_app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+    } catch (e) {
+      console.warn("Persistent Firestore cache unavailable, using default", e);
+      _db = getFirestore(_app);
+    }
   }
   return { app: _app, auth: _auth, db: _db };
 }

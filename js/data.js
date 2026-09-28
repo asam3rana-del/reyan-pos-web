@@ -64,6 +64,39 @@ async function tombstoneDelete(collectionName, id) {
 // before using a pulled row. zakat_years/zakat_payments/cash_register never get
 // tombstoned (no delete flow exists for them on either side), so their reads
 // don't need this.
+// ---------- Read cache (quota saver) ----------
+// FIX (Firestore reads exceeded the free 50K/day): every Dashboard open used to
+// download the WHOLE sales/purchases/payments/customers/suppliers/cash_transactions
+// collections several times over (true balances, overdue card, recent activity,
+// sale/purchase history). Firestore bills 1 read per document each time, so a few
+// Dashboard opens burned the day's quota. Now every full-branch read goes through
+// this short-lived cache: the same collection is fetched at most once per TTL, and
+// concurrent callers share one in-flight request. Any write made from this web app
+// clears the cache immediately (see the withCacheInvalidation() wrappers near the
+// bottom of this file), so the user's own changes show up at once. Changes made on
+// OTHER devices (e.g. the Android app) show up within READ_CACHE_TTL_MS.
+const READ_CACHE_TTL_MS = 5 * 60 * 1000;
+const _readCache = new Map(); // collectionName -> { ts, promise }
+let _readCacheGen = 0;
+
+export function invalidateReadCache() {
+  _readCacheGen++;
+  _readCache.clear();
+}
+
+function getBranchSnap(collectionName) {
+  const hit = _readCache.get(collectionName);
+  if (hit && (Date.now() - hit.ts) < READ_CACHE_TTL_MS) return hit.promise;
+  const gen = _readCacheGen;
+  const promise = getDocs(query(collection(db(), collectionName), where("branchId", "==", branchId())));
+  const entry = { ts: Date.now(), promise };
+  _readCache.set(collectionName, entry);
+  promise.catch(() => { if (_readCache.get(collectionName) === entry) _readCache.delete(collectionName); });
+  // A write that landed while this read was in flight makes it stale — don't keep it.
+  promise.then(() => { if (gen !== _readCacheGen && _readCache.get(collectionName) === entry) _readCache.delete(collectionName); }, () => {});
+  return promise;
+}
+
 export function aliveDocs(snap) {
   return snap.docs.filter(d => d.data()._deleted !== true);
 }
@@ -346,7 +379,7 @@ export function findSupplierByName(name) {
 // other's balance. A brand-new party's balance simply starts at its opening
 // balance.
 
-export async function saveCustomer({ id, name, phone, creditLimit, openingBalance }) {
+async function _saveCustomer({ id, name, phone, creditLimit, openingBalance }) {
   const bId = branchId();
   if (id) {
     await updateDoc(doc(db(), "customers", id), {
@@ -367,7 +400,7 @@ export async function saveCustomer({ id, name, phone, creditLimit, openingBalanc
   return newId;
 }
 
-export async function saveSupplier({ id, name, phone, openingBalance }) {
+async function _saveSupplier({ id, name, phone, openingBalance }) {
   const bId = branchId();
   if (id) {
     await updateDoc(doc(db(), "suppliers", id), {
@@ -387,13 +420,13 @@ export async function saveSupplier({ id, name, phone, openingBalance }) {
   return newId;
 }
 
-export async function deleteCustomer(id) {
+async function _deleteCustomer(id) {
   const c = customers.find(x => x.id === id);
   await tombstoneDelete("customers", id);
   logAudit("PARTY_DELETE", `Customer "${c ? c.name : id}" deleted`, { partyId: id, partyType: "customer" });
 }
 
-export async function deleteSupplier(id) {
+async function _deleteSupplier(id) {
   const s = suppliers.find(x => x.id === id);
   await tombstoneDelete("suppliers", id);
   logAudit("PARTY_DELETE", `Supplier "${s ? s.name : id}" deleted`, { partyId: id, partyType: "supplier" });
@@ -432,7 +465,7 @@ export async function loadPartyPayments(partyId, partyType) {
   return aliveDocs(snap).map(d => ({ ...d.data(), kind: "payment" }));
 }
 
-export async function savePartyPayment({ partyId, partyType, partyName, amount, method, note }) {
+async function _savePartyPayment({ partyId, partyType, partyName, amount, method, note }) {
   const bId = branchId();
   const id = ids.payment();
   const reference = `manual-${partyType}-${partyId}-${Date.now()}`;
@@ -583,7 +616,7 @@ export async function deleteProduct(barcode) {
 //
 // lines: [{ barcode, product, qty, unit, unitPrice, cost, amount }]
 // Returns the invoice number on success.
-export async function saveSale({ lines, customerName, saleType, subtotal, discount, total, paid, paymentMethod, dueDate }) {
+async function _saveSale({ lines, customerName, saleType, subtotal, discount, total, paid, paymentMethod, dueDate }) {
   if (!lines.length) throw new Error("No items in cart");
 
   const invoice = ids.invoice();
@@ -658,8 +691,7 @@ export async function saveSale({ lines, customerName, saleType, subtotal, discou
 
 export async function loadSaleHistory() {
   const bId = branchId();
-  const q = query(collection(db(), "sales"), where("branchId", "==", bId));
-  const snap = await getDocs(q);
+  const snap = await getBranchSnap("sales");
   return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -675,7 +707,7 @@ export async function getSaleByInvoice(invoice) {
 // collection, so nothing new for the Android side to sync. ----------
 export async function loadDueReminders() {
   const bId = branchId();
-  const snap = await getDocs(query(collection(db(), "sales"), where("branchId", "==", bId)));
+  const snap = await getBranchSnap("sales");
   return aliveDocs(snap).map(d => d.data())
     .filter(s => s.status === "active" && (s.dueDate || 0) > 0 && (s.total - s.paid) > 0.0001)
     .map(s => {
@@ -725,7 +757,7 @@ async function reverseSaleEffects(sale) {
 }
 
 // Deletes a sale entirely — reverses stock/customer-balance first, no trace left.
-export async function deleteSaleBill(invoice) {
+async function _deleteSaleBill(invoice) {
   const sale = await getSaleByInvoice(invoice);
   if (!sale) throw new Error("Sale not found");
   await reverseSaleEffects(sale);
@@ -737,7 +769,7 @@ export async function deleteSaleBill(invoice) {
 // status="returned" (so it still shows in Day Book/Reports as a returned sale,
 // same as Android), and one `returns` doc per line item is logged for future
 // Sale-Returns reporting (mirrors ReturnLine — see Database.kt).
-export async function returnSaleBill(invoice) {
+async function _returnSaleBill(invoice) {
   const sale = await getSaleByInvoice(invoice);
   if (!sale) throw new Error("Sale not found");
   if (sale.status === "returned") throw new Error("Already returned");
@@ -769,7 +801,7 @@ export async function returnSaleBill(invoice) {
 //
 // lines: [{ barcode, product, qty, unit, unitCost, amount, conversionFactor }]
 // Returns the bill number on success.
-export async function savePurchase({ lines, supplierName, discount, paid, paymentMethod, purchaseDateMillis }) {
+async function _savePurchase({ lines, supplierName, discount, paid, paymentMethod, purchaseDateMillis }) {
   if (!lines.length) throw new Error("No items in purchase");
 
   const bId = branchId();
@@ -883,8 +915,7 @@ export async function savePurchase({ lines, supplierName, discount, paid, paymen
 
 export async function loadPurchaseHistory() {
   const bId = branchId();
-  const q = query(collection(db(), "purchases"), where("branchId", "==", bId));
-  const snap = await getDocs(q);
+  const snap = await getBranchSnap("purchases");
   return aliveDocs(snap).map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -955,7 +986,7 @@ async function reversePurchaseEffects(purchase, productOverrides) {
 
 // Deletes a purchase bill entirely — reverses its stock/cost/supplier-balance
 // effects first (see reversePurchaseEffects above), then removes the bill.
-export async function deletePurchaseBill(billNo) {
+async function _deletePurchaseBill(billNo) {
   const purchase = await getPurchaseByBillNo(billNo);
   if (!purchase) throw new Error("Purchase not found");
   await reversePurchaseEffects(purchase);
@@ -967,7 +998,7 @@ export async function deletePurchaseBill(billNo) {
 // Firestore purchase doc being replaced — fetch it once when entering edit
 // mode (see purchase.js's enterPurchaseEditMode()) and pass it back here so
 // the reversal step above has the pre-edit items/total/paid to undo.
-export async function updatePurchaseBill(billNo, { lines, supplierName, discount, paid, paymentMethod, purchaseDateMillis }, original) {
+async function _updatePurchaseBill(billNo, { lines, supplierName, discount, paid, paymentMethod, purchaseDateMillis }, original) {
   if (!lines.length) throw new Error("No items in purchase");
 
   const bId = branchId();
@@ -1122,11 +1153,11 @@ export async function loadTodayStats() {
 async function computeTrueBalances() {
   const bId = branchId();
   const [custSnap, suppSnap, saleSnap, purchSnap, paySnap] = await Promise.all([
-    getDocs(query(collection(db(), "customers"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "suppliers"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "payments"), where("branchId", "==", bId)))
+    getBranchSnap("customers"),
+    getBranchSnap("suppliers"),
+    getBranchSnap("sales"),
+    getBranchSnap("purchases"),
+    getBranchSnap("payments")
   ]);
 
   // delta per bill/payment: same convention as showStatement()'s `delta` —
@@ -1225,7 +1256,7 @@ export function lowStockProducts() {
 // separate from the automatic cash_transactions written by savePurchase()
 // above; same collection/schema though, so both show up together) ----------
 
-export async function saveCashTransaction({ type, method, amount, reason }) {
+async function _saveCashTransaction({ type, method, amount, reason }) {
   const bId = branchId();
   const id = ids.cashTransaction();
   await setDoc(doc(db(), "cash_transactions", id), {
@@ -1274,9 +1305,9 @@ export async function loadRecentActivity(limitCount = 10) {
   // must not blank out the other two, and must never surface as an
   // unhandled rejection — every branch below is read defensively.
   const [salesRes, purchasesRes, cashRes] = await Promise.allSettled([
-    getDocs(query(collection(db(), "sales"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "purchases"), where("branchId", "==", bId))),
-    getDocs(query(collection(db(), "cash_transactions"), where("branchId", "==", bId)))
+    getBranchSnap("sales"),
+    getBranchSnap("purchases"),
+    getBranchSnap("cash_transactions")
   ]);
 
   const events = [];
@@ -1919,3 +1950,17 @@ export async function loadShopEmptyShellLog() {
   const snap = await getDocs(query(collection(db(), "shop_empty_shell_log"), where("branchId", "==", bId)));
   return snap.docs.map(d => d.data()).sort((a, b) => b.createdAt - a.createdAt);
 }
+
+// ---------- Cache invalidation for writes (see "Read cache" above) ----------
+export async function saveCustomer(...args) { invalidateReadCache(); try { return await _saveCustomer(...args); } finally { invalidateReadCache(); } }
+export async function saveSupplier(...args) { invalidateReadCache(); try { return await _saveSupplier(...args); } finally { invalidateReadCache(); } }
+export async function deleteCustomer(...args) { invalidateReadCache(); try { return await _deleteCustomer(...args); } finally { invalidateReadCache(); } }
+export async function deleteSupplier(...args) { invalidateReadCache(); try { return await _deleteSupplier(...args); } finally { invalidateReadCache(); } }
+export async function savePartyPayment(...args) { invalidateReadCache(); try { return await _savePartyPayment(...args); } finally { invalidateReadCache(); } }
+export async function saveSale(...args) { invalidateReadCache(); try { return await _saveSale(...args); } finally { invalidateReadCache(); } }
+export async function deleteSaleBill(...args) { invalidateReadCache(); try { return await _deleteSaleBill(...args); } finally { invalidateReadCache(); } }
+export async function returnSaleBill(...args) { invalidateReadCache(); try { return await _returnSaleBill(...args); } finally { invalidateReadCache(); } }
+export async function savePurchase(...args) { invalidateReadCache(); try { return await _savePurchase(...args); } finally { invalidateReadCache(); } }
+export async function deletePurchaseBill(...args) { invalidateReadCache(); try { return await _deletePurchaseBill(...args); } finally { invalidateReadCache(); } }
+export async function updatePurchaseBill(...args) { invalidateReadCache(); try { return await _updatePurchaseBill(...args); } finally { invalidateReadCache(); } }
+export async function saveCashTransaction(...args) { invalidateReadCache(); try { return await _saveCashTransaction(...args); } finally { invalidateReadCache(); } }
